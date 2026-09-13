@@ -1,6 +1,7 @@
 from flask import Flask, jsonify, Response
 from flask_cors import CORS
 
+import os
 import platform
 import socket
 import getpass
@@ -1139,14 +1140,17 @@ if __name__ == "__main__":
 
     print("================================")
 
-    print("API server starting...")
+    host = "0.0.0.0"
+    port = int(os.environ.get("PORT", 5000))
 
-    print("URL: http://127.0.0.1:5000")
+    print("API server starting...")
+    print(f"Host: {host}")
+    print(f"Port: {port}")
 
     print()
 
     app.run(
-        host="127.0.0.1",
-        port=5000,
+        host=host,
+        port=port,
         debug=False
     )
