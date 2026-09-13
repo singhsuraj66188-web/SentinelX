@@ -117,8 +117,6 @@ SentinelX/
 └── README.md
 ```
 
-> Local database files, logs, and generated reports are excluded from Git using `.gitignore`.
-
 ## Detection Engine
 
 SentinelX currently uses rule-based detection for selected Windows processes associated with potentially suspicious execution behavior.
