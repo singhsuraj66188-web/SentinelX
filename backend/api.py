@@ -1,4 +1,4 @@
-from flask import Flask, jsonify, Response
+from flask import Flask, jsonify, request, Response
 from flask_cors import CORS
 
 import os
@@ -10,6 +10,7 @@ from datetime import datetime
 
 from database import (
     initialize_database,
+    save_event,
     get_recent_events,
     get_security_alerts,
     get_current_risk_score,
@@ -356,6 +357,127 @@ def network():
 
         return jsonify([])
 
+# ============================================
+# SECURE EVENT INGESTION
+# ============================================
+
+@app.route("/api/ingest", methods=["POST"])
+def ingest_event():
+
+    ingest_key = os.environ.get("INGEST_API_KEY")
+
+    if not ingest_key:
+
+        return jsonify({
+            "status": "error",
+            "message": "Ingestion authentication is not configured"
+        }), 503
+
+
+    supplied_key = request.headers.get(
+        "X-SentinelX-Key"
+    )
+
+    if not supplied_key or supplied_key != ingest_key:
+
+        return jsonify({
+            "status": "error",
+            "message": "Unauthorized"
+        }), 401
+
+
+    data = request.get_json(
+        silent=True
+    )
+
+    if not data:
+
+        return jsonify({
+            "status": "error",
+            "message": "JSON body is required"
+        }), 400
+
+
+    required_fields = [
+        "timestamp",
+        "event_type",
+        "severity",
+        "message",
+        "risk_score"
+    ]
+
+
+    missing_fields = [
+        field
+        for field in required_fields
+        if field not in data
+    ]
+
+
+    if missing_fields:
+
+        return jsonify({
+            "status": "error",
+            "message": "Missing required fields",
+            "fields": missing_fields
+        }), 400
+
+
+    try:
+
+        risk_score = int(
+            data["risk_score"]
+        )
+
+    except (
+        TypeError,
+        ValueError
+    ):
+
+        return jsonify({
+            "status": "error",
+            "message": "risk_score must be an integer"
+        }), 400
+
+
+    if risk_score < 0 or risk_score > 100:
+
+        return jsonify({
+            "status": "error",
+            "message": "risk_score must be between 0 and 100"
+        }), 400
+
+
+    save_event(
+
+        timestamp=str(
+            data["timestamp"]
+        ),
+
+        event_type=str(
+            data["event_type"]
+        ),
+
+        severity=str(
+            data["severity"]
+        ),
+
+        process=str(
+            data.get("process", "")
+        ),
+
+        message=str(
+            data["message"]
+        ),
+
+        risk_score=risk_score
+    )
+
+
+    return jsonify({
+        "status": "success",
+        "message": "Event stored successfully"
+    }), 201
 
 # ============================================
 # API HEALTH
