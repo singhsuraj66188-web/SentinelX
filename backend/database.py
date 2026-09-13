@@ -182,18 +182,25 @@ def save_event(
     message,
     severity="INFO",
     process=None,
-    risk_score=0
+    risk_score=0,
+    timestamp=None
 ):
     """
     Save a security event.
 
     Uses Supabase when cloud environment variables exist.
     Otherwise uses local SQLite.
+
+    The timestamp can be supplied by a remote ingestion
+    request. If no timestamp is supplied, the current
+    local timestamp is generated automatically.
     """
 
-    timestamp = datetime.now().strftime(
-        "%Y-%m-%d %H:%M:%S"
-    )
+    if timestamp is None:
+
+        timestamp = datetime.now().strftime(
+            "%Y-%m-%d %H:%M:%S"
+        )
 
     event_data = {
         "timestamp": timestamp,
