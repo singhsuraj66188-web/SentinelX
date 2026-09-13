@@ -1,0 +1,1021 @@
+```html
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>SentinelX | Cybersecurity Monitoring System</title>
+
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+
+    <!-- ================================
+         SIDEBAR
+    ================================= -->
+
+    <aside class="sidebar">
+
+        <div class="logo-area">
+
+            <div class="logo-icon">
+                SX
+            </div>
+
+            <div>
+                <h2>SentinelX</h2>
+                <span>Security Monitor</span>
+            </div>
+
+        </div>
+
+
+        <nav class="navigation">
+
+            <a href="#" class="nav-item active">
+                <span class="nav-icon">&#9635;</span>
+                <span>Dashboard</span>
+            </a>
+
+            <a href="#alerts" class="nav-item">
+                <span class="nav-icon">&#9888;</span>
+                <span>Alerts</span>
+            </a>
+
+            <a href="#events" class="nav-item">
+                <span class="nav-icon">&#9675;</span>
+                <span>Event History</span>
+            </a>
+
+            <a href="#processes" class="nav-item">
+                <span class="nav-icon">&#9644;</span>
+                <span>Processes</span>
+            </a>
+
+            <a href="#network" class="nav-item">
+                <span class="nav-icon">&#8961;</span>
+                <span>Network</span>
+            </a>
+
+        </nav>
+
+
+        <div class="sidebar-footer">
+
+            <div class="system-indicator">
+                <span class="online-dot"></span>
+                <span>Monitoring Active</span>
+            </div>
+
+            <small>
+                SentinelX v1.0
+            </small>
+
+        </div>
+
+    </aside>
+
+
+    <!-- ================================
+         MAIN CONTENT
+    ================================= -->
+
+    <main class="main-content">
+
+
+        <!-- ================================
+             TOPBAR
+        ================================= -->
+
+        <header class="topbar">
+
+            <div>
+
+                <h1>Security Dashboard</h1>
+
+                <p>
+                    Real-time cybersecurity monitoring and threat analysis
+                </p>
+
+            </div>
+
+
+            <div class="topbar-actions">
+
+                <div class="live-status">
+
+                    <span class="live-dot"></span>
+
+                    <span>
+                        LIVE MONITORING
+                    </span>
+
+                </div>
+
+                <button
+                    id="refreshBtn"
+                    class="refresh-btn">
+
+                    &#8635; Refresh
+
+                </button>
+
+                <a
+                    href="#"
+                    id="reportBtn"
+                    class="report-btn">
+
+                    Generate Security Report
+
+                </a>
+
+            </div>
+
+        </header>
+
+
+        <!-- ================================
+             SYSTEM OVERVIEW
+        ================================= -->
+
+        <section class="overview-grid">
+
+
+            <div class="overview-card">
+
+                <div class="overview-card-header">
+
+                    <span>
+                        System Status
+                    </span>
+
+                    <span class="card-icon">
+                        &#9679;
+                    </span>
+
+                </div>
+
+                <strong id="systemStatus">
+                    Checking...
+                </strong>
+
+                <small>
+                    SentinelX monitoring engine
+                </small>
+
+            </div>
+
+
+            <div class="overview-card">
+
+                <div class="overview-card-header">
+
+                    <span>
+                        Total Events
+                    </span>
+
+                    <span class="card-icon">
+                        &#9675;
+                    </span>
+
+                </div>
+
+                <strong id="totalEvents">
+                    0
+                </strong>
+
+                <small>
+                    Security events recorded
+                </small>
+
+            </div>
+
+
+            <div class="overview-card">
+
+                <div class="overview-card-header">
+
+                    <span>
+                        Risk Score
+                    </span>
+
+                    <span class="card-icon">
+                        &#9888;
+                    </span>
+
+                </div>
+
+                <strong id="riskScore">
+                    0/100
+                </strong>
+
+                <small id="riskLevel">
+                    NORMAL
+                </small>
+
+            </div>
+
+
+            <div class="overview-card">
+
+                <div class="overview-card-header">
+
+                    <span>
+                        Security Alerts
+                    </span>
+
+                    <span class="card-icon">
+                        !
+                    </span>
+
+                </div>
+
+                <strong id="securityAlerts">
+                    0
+                </strong>
+
+                <small>
+                    Detected security alerts
+                </small>
+
+            </div>
+
+        </section>
+
+
+        <!-- ===============================
+             SECURITY STATISTICS
+        ================================= -->
+
+        <section class="panel statistics-panel">
+
+            <div class="panel-header">
+
+                <div>
+
+                    <h3>
+                        Security Statistics
+                    </h3>
+
+                    <p>
+                        Live SentinelX monitoring statistics
+                    </p>
+
+                </div>
+
+                <span class="panel-badge">
+                    LIVE
+                </span>
+
+            </div>
+
+
+            <div class="statistics-grid">
+
+                <div class="stat-card">
+
+                    <span class="stat-label">
+                        Total Events
+                    </span>
+
+                    <strong id="statTotalEvents">
+                        0
+                    </strong>
+
+                </div>
+
+
+                <div class="stat-card">
+
+                    <span class="stat-label">
+                        Security Alerts
+                    </span>
+
+                    <strong id="statSecurityAlerts">
+                        0
+                    </strong>
+
+                </div>
+
+
+                <div class="stat-card">
+
+                    <span class="stat-label">
+                        Running Processes
+                    </span>
+
+                    <strong id="statProcesses">
+                        0
+                    </strong>
+
+                </div>
+
+
+                <div class="stat-card">
+
+                    <span class="stat-label">
+                        Network Connections
+                    </span>
+
+                    <strong id="statNetwork">
+                        0
+                    </strong>
+
+                </div>
+
+
+                <div class="stat-card">
+
+                    <span class="stat-label">
+                        Current Risk
+                    </span>
+
+                    <strong id="statCurrentRisk">
+                        0/100
+                    </strong>
+
+                </div>
+
+
+                <div class="stat-card">
+
+                    <span class="stat-label">
+                        Highest Risk
+                    </span>
+
+                    <strong id="statHighestRisk">
+                        0/100
+                    </strong>
+
+                </div>
+
+            </div>
+
+        </section>
+
+
+        <!-- ================================
+             ALERTS + RISK
+        ================================= -->
+
+        <section class="dashboard-grid">
+
+
+            <!-- ALERTS -->
+
+            <div
+                class="panel alerts-panel"
+                id="alerts">
+
+                <div class="panel-header">
+
+                    <div>
+
+                        <h3>
+                            Security Alerts
+                        </h3>
+
+                        <p>
+                            Recently detected suspicious activity
+                        </p>
+
+                    </div>
+
+                    <span
+                        class="panel-badge"
+                        id="alertCountBadge">
+
+                        0 ALERTS
+
+                    </span>
+
+                </div>
+
+
+                <div
+                    class="alerts-container"
+                    id="alertsContainer">
+
+                    <div class="empty-state">
+
+                        <div class="empty-icon">
+                            &#10003;
+                        </div>
+
+                        <p>
+                            No security alerts detected
+                        </p>
+
+                    </div>
+
+                </div>
+
+            </div>
+
+
+            <!-- RISK ASSESSMENT -->
+
+            <div class="panel risk-panel">
+
+                <div class="panel-header">
+
+                    <div>
+
+                        <h3>
+                            Risk Assessment
+                        </h3>
+
+                        <p>
+                            Current system security level
+                        </p>
+
+                    </div>
+
+                    <span class="panel-badge">
+                        LIVE
+                    </span>
+
+                </div>
+
+
+                <div class="risk-display">
+
+                    <div class="risk-circle">
+
+                        <div>
+
+                            <span id="riskNumber">
+                                0
+                            </span>
+
+                            <small>
+                                / 100
+                            </small>
+
+                        </div>
+
+                    </div>
+
+
+                    <div
+                        id="riskStatus"
+                        class="risk-status">
+
+                        NORMAL
+
+                    </div>
+
+
+                    <p class="risk-description">
+
+                        No significant security indicators
+                        detected in the current monitoring cycle.
+
+                    </p>
+
+                </div>
+
+            </div>
+
+        </section>
+
+
+        <!-- ================================
+             RISK HISTORY
+        ================================= -->
+
+        <section class="panel risk-history-panel">
+
+            <div class="panel-header">
+
+                <div>
+
+                    <h3>
+                        Risk History
+                    </h3>
+
+                    <p>
+                        Recent security risk activity
+                    </p>
+
+                </div>
+
+                <span class="panel-badge">
+                    LIVE
+                </span>
+
+            </div>
+
+
+            <!-- RISK SUMMARY -->
+
+            <div class="risk-summary">
+
+
+                <div class="risk-summary-card">
+
+                    <span class="risk-summary-label">
+                        Current Risk
+                    </span>
+
+                    <strong id="riskSummaryCurrent">
+                        0/100
+                    </strong>
+
+                    <span
+                        id="riskSummaryCurrentLevel"
+                        class="risk-summary-status">
+
+                        NORMAL
+
+                    </span>
+
+                </div>
+
+
+                <div class="risk-summary-card">
+
+                    <span class="risk-summary-label">
+                        Highest Risk
+                    </span>
+
+                    <strong id="riskSummaryHighest">
+                        0/100
+                    </strong>
+
+                    <span
+                        id="riskSummaryHighestLevel"
+                        class="risk-summary-status">
+
+                        NORMAL
+
+                    </span>
+
+                </div>
+
+
+                <div class="risk-summary-card">
+
+                    <span class="risk-summary-label">
+                        Risk Trend
+                    </span>
+
+                    <strong id="riskSummaryTrend">
+                        STABLE
+                    </strong>
+
+                    <span
+                        id="riskSummaryTrendDetail"
+                        class="risk-summary-status">
+
+                        No significant change
+
+                    </span>
+
+                </div>
+
+            </div>
+
+
+            <div class="risk-chart-container">
+
+                <canvas id="riskHistoryChart"></canvas>
+
+            </div>
+
+        </section>
+
+
+        <!-- ================================
+             EVENT HISTORY
+        ================================= -->
+
+        <section
+            class="panel"
+            id="events">
+
+            <div class="panel-header">
+
+                <div>
+
+                    <h3>
+                        Event History
+                    </h3>
+
+                    <p>
+                        Recorded security monitoring events
+                    </p>
+
+                </div>
+
+                <span class="panel-badge">
+                    DATABASE
+                </span>
+
+            </div>
+
+
+            <div class="table-wrapper">
+
+                <table>
+
+                    <thead>
+
+                        <tr>
+
+                            <th>
+                                Time
+                            </th>
+
+                            <th>
+                                Event
+                            </th>
+
+                            <th>
+                                Severity
+                            </th>
+
+                            <th>
+                                Process
+                            </th>
+
+                            <th>
+                                Message
+                            </th>
+
+                            <th>
+                                Risk
+                            </th>
+
+                        </tr>
+
+                    </thead>
+
+
+                    <tbody id="eventsTableBody">
+
+                        <tr>
+
+                            <td colspan="6">
+                                Loading events...
+                            </td>
+
+                        </tr>
+
+                    </tbody>
+
+                </table>
+
+            </div>
+
+        </section>
+
+
+        <!-- ================================
+             SYSTEM INFORMATION
+        ================================= -->
+
+        <section class="panel">
+
+            <div class="panel-header">
+
+                <div>
+
+                    <h3>
+                        System Information
+                    </h3>
+
+                    <p>
+                        Monitored host information
+                    </p>
+
+                </div>
+
+            </div>
+
+
+            <div class="system-info-grid">
+
+
+                <div class="info-item">
+
+                    <span>
+                        Hostname
+                    </span>
+
+                    <strong id="hostname">
+                        &#8212;
+                    </strong>
+
+                </div>
+
+
+                <div class="info-item">
+
+                    <span>
+                        Operating System
+                    </span>
+
+                    <strong id="operatingSystem">
+                        &#8212;
+                    </strong>
+
+                </div>
+
+
+                <div class="info-item">
+
+                    <span>
+                        OS Version
+                    </span>
+
+                    <strong id="osVersion">
+                        &#8212;
+                    </strong>
+
+                </div>
+
+
+                <div class="info-item">
+
+                    <span>
+                        Username
+                    </span>
+
+                    <strong id="username">
+                        &#8212;
+                    </strong>
+
+                </div>
+
+            </div>
+
+        </section>
+
+
+        <!-- ================================
+             PROCESSES
+        ================================= -->
+
+        <section
+            class="panel"
+            id="processes">
+
+            <div class="panel-header">
+
+                <div>
+
+                    <h3>
+                        Running Processes
+                    </h3>
+
+                    <p>
+                        Currently active system processes
+                    </p>
+
+
+                    <div class="process-search">
+
+                        <input
+                            type="text"
+                            id="processSearch"
+                            placeholder="Search processes..."
+                            autocomplete="off">
+
+                    </div>
+
+                </div>
+
+                <span
+                    class="panel-badge"
+                    id="processCount">
+
+                    0 PROCESSES
+
+                </span>
+
+            </div>
+
+
+            <div class="table-wrapper">
+
+                <table>
+
+                    <thead>
+
+                        <tr>
+
+                            <th>
+                                PID
+                            </th>
+
+                            <th>
+                                Process
+                            </th>
+
+                            <th>
+                                Memory
+                            </th>
+
+                            <th>
+                                Status
+                            </th>
+
+                        </tr>
+
+                    </thead>
+
+
+                    <tbody id="processTableBody">
+
+                        <tr>
+
+                            <td colspan="4">
+                                Loading processes...
+                            </td>
+
+                        </tr>
+
+                    </tbody>
+
+                </table>
+
+            </div>
+
+        </section>
+
+
+        <!-- ================================
+             NETWORK
+        ================================= -->
+
+        <section
+            class="panel"
+            id="network">
+
+            <div class="panel-header">
+
+                <div>
+
+                    <h3>
+                        Network Connections
+                    </h3>
+
+                    <p>
+                        Active network connection monitoring
+                    </p>
+
+
+                    <div class="network-search">
+
+                        <input
+                            type="text"
+                            id="networkSearch"
+                            placeholder="Search network connections..."
+                            autocomplete="off">
+
+                    </div>
+
+                </div>
+
+                <span class="panel-badge">
+                    NETWORK
+                </span>
+
+            </div>
+
+
+            <div class="network-summary">
+
+                <div class="network-stat">
+
+                    <span>
+                        Total Connections
+                    </span>
+
+                    <strong id="networkCount">
+                        0
+                    </strong>
+
+                </div>
+
+
+                <div class="network-stat">
+
+                    <span>
+                        Established
+                    </span>
+
+                    <strong id="networkEstablished">
+                        0
+                    </strong>
+
+                </div>
+
+
+                <div class="network-stat">
+
+                    <span>
+                        Listening
+                    </span>
+
+                    <strong id="networkListening">
+                        0
+                    </strong>
+
+                </div>
+
+            </div>
+
+
+            <div class="table-wrapper">
+
+                <table>
+
+                    <thead>
+
+                        <tr>
+
+                            <th>
+                                Protocol
+                            </th>
+
+                            <th>
+                                Local Address
+                            </th>
+
+                            <th>
+                                Foreign Address
+                            </th>
+
+                            <th>
+                                PID
+                            </th>
+
+                            <th>
+                                State
+                            </th>
+
+                        </tr>
+
+                    </thead>
+
+
+                    <tbody id="networkTableBody">
+
+                        <tr>
+
+                            <td colspan="5">
+                                Loading network connections...
+                            </td>
+
+                        </tr>
+
+                    </tbody>
+
+                </table>
+
+            </div>
+
+        </section>
+
+
+        <!-- ================================
+             FOOTER
+        ================================= -->
+
+        <footer>
+
+            <div>
+                SentinelX &#8212; Cybersecurity Monitoring System
+            </div>
+
+            <div>
+
+                <span id="lastUpdated">
+                    Last updated: &#8212;
+                </span>
+
+            </div>
+
+        </footer>
+
+
+    </main>
+
+
+    <!-- Chart.js -->
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <!-- SentinelX JavaScript -->
+
+    <script src="app.js"></script>
+
+</body>
+
+</html>
+```

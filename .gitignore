@@ -1,0 +1,39 @@
+﻿# Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# SentinelX local data
+data/*.db
+data/*.sqlite
+data/*.sqlite3
+
+# Logs
+logs/*.log
+logs/*.txt
+
+# Generated reports
+SentinelX_Security_Report.html
+backend/SentinelX_Security_Report.html
+dashboard/SentinelX_Security_Report.html
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# Windows
+Thumbs.db
+Desktop.ini
+
+# VS Code
+.vscode/
+
+# Temporary files
+*.tmp
+*.temp
