@@ -394,6 +394,123 @@ function getRiskLevel(score) {
 
 
 /* ============================================================
+   RECOMMENDED ACTION
+   ============================================================ */
+
+function getRecommendedAction(alert) {
+
+    const risk =
+        normalizeRisk(
+            alert?.risk_score
+        );
+
+    const severity =
+        String(
+            alert?.severity ||
+            getRiskLevel(risk) ||
+            "INFO"
+        ).toUpperCase();
+
+    const process =
+        String(
+            alert?.process ||
+            ""
+        ).toLowerCase();
+
+
+    if (
+        severity === "CRITICAL" ||
+        risk >= 90
+    ) {
+
+        return {
+
+            title:
+                "Immediate Response Required",
+
+            text:
+                "Isolate the affected system if necessary and investigate the process, parent process, command line, and related network activity immediately."
+        };
+    }
+
+
+    if (
+        severity === "HIGH" ||
+        risk >= 75
+    ) {
+
+        return {
+
+            title:
+                "Investigate Immediately",
+
+            text:
+                "Investigate this process and its parent process. Verify whether the execution was authorized and review related system and network activity."
+        };
+    }
+
+
+    if (
+        severity === "MEDIUM" ||
+        risk >= 50
+    ) {
+
+        return {
+
+            title:
+                "Investigate Activity",
+
+            text:
+                "Review the process execution, parent process, command line, and recent events. Confirm whether the activity is expected."
+        };
+    }
+
+
+    if (
+        process === "rundll32.exe"
+    ) {
+
+        return {
+
+            title:
+                "Monitor & Verify",
+
+            text:
+                "Verify whether rundll32.exe was launched by a trusted application. If the activity repeats or becomes suspicious, investigate its parent process and command line."
+        };
+    }
+
+
+    if (
+        process === "wscript.exe" ||
+        process === "cscript.exe" ||
+        process === "mshta.exe" ||
+        process === "regsvr32.exe"
+    ) {
+
+        return {
+
+            title:
+                "Monitor and Investigate",
+
+            text:
+                "Verify whether this process was intentionally launched. Review its parent process, command line, and recent security events for suspicious behavior."
+        };
+    }
+
+
+    return {
+
+        title:
+            "Monitor & Verify",
+
+        text:
+            "Monitor this activity and verify that the detected process was initiated by a trusted application."
+    };
+}
+
+
+/* ============================================================
    ALERT NORMALIZATION
    ============================================================ */
 
@@ -1683,10 +1800,6 @@ async function loadAlerts() {
                 .join("");
 
 
-        /*
-            Directly bind View Details buttons.
-        */
-
         const detailButtons =
             container.querySelectorAll(
                 ".alert-details-link"
@@ -1814,6 +1927,10 @@ function createAlertHTML(
         "Unknown time";
 
 
+    const severityClass =
+        severity.toLowerCase();
+
+
     return `
 
         <div
@@ -1824,7 +1941,9 @@ function createAlertHTML(
 
             <div class="alert-header">
 
-                <span class="alert-severity">
+                <span class="severity-badge ${escapeHTML(
+                    severityClass
+                )}">
                     ${escapeHTML(
                         severity
                     )}
@@ -1943,6 +2062,16 @@ function showThreatDetails(
             : "N/A";
 
 
+    const severityClass =
+        severity.toLowerCase();
+
+
+    const recommendedAction =
+        getRecommendedAction(
+            alert
+        );
+
+
     popup.innerHTML = `
 
         <div
@@ -1982,7 +2111,9 @@ function showThreatDetails(
                     </div>
 
 
-                    <div class="threat-details-severity">
+                    <div class="threat-details-severity ${escapeHTML(
+                        severityClass
+                    )}">
                         ${escapeHTML(
                             severity
                         )}
@@ -2014,7 +2145,9 @@ function showThreatDetails(
                             Risk Score
                         </span>
 
-                        <strong>
+                        <strong class="threat-risk ${escapeHTML(
+                            severityClass
+                        )}">
                             ${risk}/100
                         </strong>
 
@@ -2042,7 +2175,7 @@ function showThreatDetails(
                             Process
                         </span>
 
-                        <strong>
+                        <strong class="threat-process">
                             ${escapeHTML(
                                 process
                             )}
@@ -2060,6 +2193,27 @@ function showThreatDetails(
                         <p>
                             ${escapeHTML(
                                 message
+                            )}
+                        </p>
+
+                    </div>
+
+
+                    <div class="threat-recommended-action full-width">
+
+                        <span class="threat-detail-label">
+                            Recommended Action
+                        </span>
+
+                        <strong class="recommended-action-title">
+                            ${escapeHTML(
+                                recommendedAction.title
+                            )}
+                        </strong>
+
+                        <p>
+                            ${escapeHTML(
+                                recommendedAction.text
                             )}
                         </p>
 
@@ -2148,6 +2302,11 @@ function showThreatDetails(
         "hidden";
 
 
+    document.body.classList.add(
+        "threat-popup-open"
+    );
+
+
     setTimeout(
         () => {
 
@@ -2182,6 +2341,11 @@ function closeThreatDetails() {
 
     document.body.style.overflow =
         "";
+
+
+    document.body.classList.remove(
+        "threat-popup-open"
+    );
 }
 
 
@@ -3473,6 +3637,22 @@ function createLocalReport() {
 
             lines.push(
                 `   Message: ${alert.message || "N/A"}`
+            );
+
+
+            const recommendation =
+                getRecommendedAction(
+                    alert
+                );
+
+
+            lines.push(
+                `   Recommended Action: ${recommendation.title}`
+            );
+
+
+            lines.push(
+                `   Action Details: ${recommendation.text}`
             );
 
 

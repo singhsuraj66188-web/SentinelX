@@ -552,6 +552,38 @@ body.threat-popup-open {
     font-size: 9px;
 }
 
+.alert-details-link {
+    border: none;
+
+    background: transparent;
+
+    color: #00e5a0;
+
+    font-size: 10px;
+
+    font-weight: 600;
+
+    cursor: pointer;
+
+    padding: 2px 0;
+
+    transition: 0.2s ease;
+}
+
+.alert-details-link:hover {
+    color: #ffffff;
+
+    text-decoration: underline;
+}
+
+.alert-details-link:focus-visible {
+    outline: 2px solid #00e5a0;
+
+    outline-offset: 3px;
+
+    border-radius: 3px;
+}
+
 
 /* ============================================
    SEVERITY
@@ -1321,6 +1353,18 @@ footer {
     letter-spacing: 0.8px;
 }
 
+.threat-detail-card strong {
+    display: block;
+
+    color: #d8e0e7;
+
+    font-size: 12px;
+
+    line-height: 1.5;
+
+    word-break: break-word;
+}
+
 .threat-detail-value {
     display: block;
 
@@ -1339,7 +1383,7 @@ footer {
         "Courier New",
         monospace;
 
-    color: #00e5a0;
+    color: #00e5a0 !important;
 
     font-size: 12px;
 }
@@ -1426,25 +1470,25 @@ footer {
 }
 
 .threat-risk {
-    font-size: 15px;
+    font-size: 15px !important;
 
     font-weight: 700;
 }
 
 .threat-risk.low {
-    color: #00e5a0;
+    color: #00e5a0 !important;
 }
 
 .threat-risk.medium {
-    color: #ffb347;
+    color: #ffb347 !important;
 }
 
 .threat-risk.high {
-    color: #ff6b6b;
+    color: #ff6b6b !important;
 }
 
 .threat-risk.critical {
-    color: #ff4d6d;
+    color: #ff4d6d !important;
 }
 
 .threat-detected {
@@ -1481,6 +1525,132 @@ footer {
 
     word-break: break-word;
 }
+
+
+/* ============================================
+   RECOMMENDED ACTION
+============================================ */
+
+.threat-recommended-action {
+    padding: 16px;
+
+    background:
+        rgba(0, 229, 160, 0.045);
+
+    border:
+        1px solid
+        rgba(0, 229, 160, 0.18);
+
+    border-left:
+        3px solid
+        #00e5a0;
+
+    border-radius: 9px;
+
+    transition: 0.2s ease;
+}
+
+.threat-recommended-action:hover {
+    background:
+        rgba(0, 229, 160, 0.065);
+
+    border-color:
+        rgba(0, 229, 160, 0.28);
+}
+
+.threat-recommended-action .threat-detail-label {
+    margin-bottom: 9px;
+}
+
+.recommended-action-title {
+    display: block;
+
+    margin-bottom: 8px;
+
+    color: #00e5a0 !important;
+
+    font-size: 13px !important;
+
+    font-weight: 700 !important;
+}
+
+.threat-recommended-action p {
+    margin: 0;
+
+    color: #b7c0c8;
+
+    font-size: 12px;
+
+    line-height: 1.65;
+
+    word-break: break-word;
+}
+
+
+/* ============================================
+   THREAT DETAILS ACTIONS
+============================================ */
+
+.threat-details-actions {
+    display: flex;
+
+    align-items: center;
+
+    justify-content: flex-end;
+
+    gap: 10px;
+
+    padding: 15px 22px;
+
+    border-top:
+        1px solid
+        rgba(255, 255, 255, 0.07);
+
+    background:
+        rgba(255, 255, 255, 0.015);
+}
+
+.threat-details-actions button {
+    border:
+        1px solid
+        rgba(0, 229, 160, 0.30);
+
+    padding: 8px 17px;
+
+    border-radius: 7px;
+
+    background:
+        rgba(0, 229, 160, 0.08);
+
+    color: #00e5a0;
+
+    font-size: 11px;
+
+    font-weight: 600;
+
+    cursor: pointer;
+
+    transition: 0.2s ease;
+}
+
+.threat-details-actions button:hover {
+    background:
+        rgba(0, 229, 160, 0.16);
+
+    border-color:
+        rgba(0, 229, 160, 0.50);
+}
+
+.threat-details-actions button:focus-visible {
+    outline: 2px solid #00e5a0;
+
+    outline-offset: 2px;
+}
+
+
+/* ============================================
+   OLD FOOTER COMPATIBILITY
+============================================ */
 
 .threat-details-footer {
     display: flex;
@@ -1549,6 +1719,7 @@ footer {
 ============================================ */
 
 @keyframes threatOverlayIn {
+
     from {
         opacity: 0;
     }
@@ -1559,6 +1730,7 @@ footer {
 }
 
 @keyframes threatModalIn {
+
     from {
         opacity: 0;
 
@@ -1574,6 +1746,129 @@ footer {
             translateY(0)
             scale(1);
     }
+}
+
+
+/* ============================================
+   FINAL POPUP FIX
+============================================ */
+
+.threat-details-popup {
+    position: fixed !important;
+
+    inset: 0 !important;
+
+    width: 100vw !important;
+
+    height: 100vh !important;
+
+    display: block !important;
+
+    opacity: 0 !important;
+
+    visibility: hidden !important;
+
+    pointer-events: none !important;
+
+    z-index: 999999 !important;
+}
+
+.threat-details-popup.show {
+    display: block !important;
+
+    opacity: 1 !important;
+
+    visibility: visible !important;
+
+    pointer-events: auto !important;
+
+    z-index: 999999 !important;
+}
+
+.threat-details-overlay {
+    position: absolute !important;
+
+    inset: 0 !important;
+
+    width: 100% !important;
+
+    height: 100% !important;
+
+    display: flex !important;
+
+    align-items: center !important;
+
+    justify-content: center !important;
+
+    padding: 24px !important;
+
+    box-sizing: border-box !important;
+
+    background: rgba(0, 0, 0, 0.78) !important;
+}
+
+.threat-details-content {
+    position: relative !important;
+
+    width: min(700px, 100%) !important;
+
+    max-height: 90vh !important;
+
+    overflow-y: auto !important;
+
+    box-sizing: border-box !important;
+
+    border-radius: 16px !important;
+
+    padding: 28px !important;
+
+    background: #111827 !important;
+
+    color: #ffffff !important;
+
+    box-shadow:
+        0 25px 80px
+        rgba(0, 0, 0, 0.65) !important;
+
+    z-index: 1000000 !important;
+}
+
+.threat-details-close {
+    position: absolute !important;
+
+    top: 12px !important;
+
+    right: 16px !important;
+
+    width: 38px !important;
+
+    height: 38px !important;
+
+    border: none !important;
+
+    border-radius: 50% !important;
+
+    background:
+        rgba(255, 255, 255, 0.08) !important;
+
+    color: #ffffff !important;
+
+    font-size: 26px !important;
+
+    line-height: 38px !important;
+
+    text-align: center !important;
+
+    cursor: pointer !important;
+}
+
+.threat-details-close:hover {
+    background:
+        rgba(255, 255, 255, 0.16) !important;
+}
+
+.threat-detail-message.full-width {
+    grid-column: 1 / -1 !important;
 }
 
 
@@ -1702,36 +1997,21 @@ footer {
 @media (max-width: 600px) {
 
     .threat-details-overlay {
-        padding: 12px;
-    }
-
-    .threat-details-modal {
-        max-height:
-            calc(100vh - 24px);
-
-        border-radius: 12px;
-    }
-
-    .threat-details-header {
-        padding: 16px;
-    }
-
-    .threat-details-title-area {
-        gap: 10px;
-    }
-
-    .threat-details-icon {
-        width: 34px;
-        height: 34px;
-
-        font-size: 14px;
-    }
-
-    .threat-details-header h3 {
-        font-size: 16px;
+        padding: 12px !important;
     }
 
     .threat-details-content {
+        width: 100% !important;
+
+        max-height:
+            calc(100vh - 24px) !important;
+
+        border-radius: 12px !important;
+
+        padding: 20px !important;
+    }
+
+    .threat-details-header {
         padding: 16px;
     }
 
@@ -1745,6 +2025,14 @@ footer {
         grid-column: auto;
     }
 
+    .threat-recommended-action.full-width {
+        grid-column: auto;
+    }
+
+    .threat-details-actions {
+        padding: 13px 16px;
+    }
+
     .threat-details-footer {
         padding: 13px 16px;
     }
@@ -1754,10 +2042,6 @@ footer {
     }
 }
 
-
-/* ============================================
-   VERY SMALL SCREENS
-============================================ */
 
 @media (max-width: 420px) {
 
@@ -1773,6 +2057,16 @@ footer {
         font-size: 22px;
     }
 
+    .threat-details-actions {
+        flex-direction: column;
+
+        align-items: stretch;
+    }
+
+    .threat-details-actions button {
+        width: 100%;
+    }
+
     .threat-details-footer {
         flex-direction: column;
 
@@ -1782,79 +2076,4 @@ footer {
     .threat-ok-btn {
         width: 100%;
     }
-}
-
-/* =========================================================
-   SENTINELX THREAT DETAILS POPUP - FINAL FIX
-   ========================================================= */
-
-.threat-details-popup {
-    position: fixed !important;
-    inset: 0 !important;
-    width: 100vw !important;
-    height: 100vh !important;
-    display: block !important;
-    opacity: 0 !important;
-    visibility: hidden !important;
-    pointer-events: none !important;
-    z-index: 999999 !important;
-}
-
-.threat-details-popup.show {
-    display: block !important;
-    opacity: 1 !important;
-    visibility: visible !important;
-    pointer-events: auto !important;
-    z-index: 999999 !important;
-}
-
-.threat-details-overlay {
-    position: absolute !important;
-    inset: 0 !important;
-    width: 100% !important;
-    height: 100% !important;
-    display: flex !important;
-    align-items: center !important;
-    justify-content: center !important;
-    padding: 24px !important;
-    box-sizing: border-box !important;
-    background: rgba(0, 0, 0, 0.78) !important;
-}
-
-.threat-details-content {
-    position: relative !important;
-    width: min(700px, 100%) !important;
-    max-height: 90vh !important;
-    overflow-y: auto !important;
-    box-sizing: border-box !important;
-    border-radius: 16px !important;
-    padding: 28px !important;
-    background: #111827 !important;
-    color: #ffffff !important;
-    box-shadow: 0 25px 80px rgba(0, 0, 0, 0.65) !important;
-    z-index: 1000000 !important;
-}
-
-.threat-details-close {
-    position: absolute !important;
-    top: 12px !important;
-    right: 16px !important;
-    width: 38px !important;
-    height: 38px !important;
-    border: none !important;
-    border-radius: 50% !important;
-    background: rgba(255, 255, 255, 0.08) !important;
-    color: #ffffff !important;
-    font-size: 26px !important;
-    line-height: 38px !important;
-    text-align: center !important;
-    cursor: pointer !important;
-}
-
-.threat-details-close:hover {
-    background: rgba(255, 255, 255, 0.16) !important;
-}
-
-.threat-detail-message.full-width {
-    grid-column: 1 / -1 !important;
 }
