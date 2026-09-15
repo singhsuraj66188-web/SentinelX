@@ -3,8 +3,24 @@
    Cybersecurity Monitoring System
    ============================================================ */
 
-const API_BASE =
-    window.SENTINELX_API_BASE || "http://127.0.0.1:5000";
+let API_BASE;
+
+if (window.SENTINELX_API_BASE) {
+
+    API_BASE = window.SENTINELX_API_BASE;
+
+} else if (
+    window.location.hostname === "localhost" ||
+    window.location.hostname === "127.0.0.1"
+) {
+
+    API_BASE = "http://127.0.0.1:5000";
+
+} else {
+
+    API_BASE = "https://sentinelx-os1m.onrender.com";
+
+}
 
 
 /* ============================================================
