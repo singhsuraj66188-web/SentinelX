@@ -1,4 +1,13 @@
 import time
+import os
+import json
+import platform
+import socket
+import getpass
+
+from urllib.request import Request, urlopen
+from urllib.error import HTTPError, URLError
+from datetime import datetime
 
 from monitor import display_system_status
 from process_monitor import get_running_processes, get_process_list
@@ -14,12 +23,362 @@ from logger import log_event
 from database import initialize_database, save_event
 
 
+# ============================================================
+# SENTINELX CLOUD CONFIGURATION
+# ============================================================
+
+CLOUD_INGEST_URL = os.environ.get(
+    "SENTINELX_CLOUD_URL",
+    "https://sentinelx-os1m.onrender.com/api/ingest"
+)
+
+CLOUD_INGEST_KEY = os.environ.get(
+    "INGEST_API_KEY"
+)
+
+# New endpoint for Windows monitoring snapshots
+CLOUD_SNAPSHOT_URL = os.environ.get(
+    "SENTINELX_SNAPSHOT_URL",
+    "https://sentinelx-os1m.onrender.com/api/snapshot"
+)
+
+
+# ============================================================
+# CLOUD EVENT SENDER
+# ============================================================
+
+def send_event_to_cloud(
+    event_type,
+    message,
+    severity="INFO",
+    process=None,
+    risk_score=0,
+    timestamp=None
+):
+    """
+    Send a SentinelX event to the Render cloud API.
+
+    Local storage remains independent from cloud storage.
+    If cloud ingestion fails, SentinelX continues running.
+    """
+
+    if not CLOUD_INGEST_KEY:
+
+        print(
+            "Cloud ingestion skipped: "
+            "INGEST_API_KEY is not configured."
+        )
+
+        return False
+
+    if timestamp is None:
+
+        timestamp = datetime.now().strftime(
+            "%Y-%m-%d %H:%M:%S"
+        )
+
+    event_data = {
+        "timestamp": timestamp,
+        "event_type": event_type,
+        "severity": severity,
+        "process": process or "",
+        "message": message,
+        "risk_score": int(risk_score)
+    }
+
+    try:
+
+        request_data = json.dumps(
+            event_data
+        ).encode("utf-8")
+
+        request = Request(
+            CLOUD_INGEST_URL,
+            data=request_data,
+            headers={
+                "Content-Type": "application/json",
+                "X-SentinelX-Key": CLOUD_INGEST_KEY
+            },
+            method="POST"
+        )
+
+        with urlopen(
+            request,
+            timeout=15
+        ) as response:
+
+            response.read()
+
+            if response.status in (200, 201):
+
+                print(
+                    "Cloud event uploaded successfully."
+                )
+
+                return True
+
+            print(
+                f"Cloud ingestion returned HTTP "
+                f"{response.status}"
+            )
+
+            return False
+
+    except HTTPError as error:
+
+        print(
+            f"Cloud ingestion HTTP error: "
+            f"{error.code} {error.reason}"
+        )
+
+        return False
+
+    except URLError as error:
+
+        print(
+            f"Cloud ingestion connection error: "
+            f"{error.reason}"
+        )
+
+        return False
+
+    except Exception as error:
+
+        print(
+            f"Cloud ingestion error: {error}"
+        )
+
+        return False
+
+
+# ============================================================
+# WINDOWS SYSTEM SNAPSHOT
+# ============================================================
+
+def collect_system_snapshot():
+    """
+    Collect system information from the Windows machine
+    running SentinelX.
+    """
+
+    try:
+
+        hostname = socket.gethostname()
+
+    except Exception:
+
+        hostname = "Unknown"
+
+    try:
+
+        username = getpass.getuser()
+
+    except Exception:
+
+        username = os.environ.get(
+            "USERNAME",
+            "Unknown"
+        )
+
+    try:
+
+        operating_system = platform.system()
+
+    except Exception:
+
+        operating_system = "Unknown"
+
+    try:
+
+        os_version = platform.version()
+
+    except Exception:
+
+        os_version = "Unknown"
+
+    return {
+        "hostname": hostname,
+        "operating_system": operating_system,
+        "os_version": os_version,
+        "username": username
+    }
+
+
+# ============================================================
+# CLOUD SNAPSHOT SENDER
+# ============================================================
+
+def send_monitoring_snapshot(
+    system_snapshot,
+    processes,
+    network_connections,
+    risk_score
+):
+    """
+    Upload the latest Windows monitoring snapshot.
+
+    This is separate from normal event ingestion.
+
+    The snapshot contains:
+        - Windows system information
+        - running processes
+        - network connections
+        - current risk score
+        - timestamp
+    """
+
+    if not CLOUD_INGEST_KEY:
+
+        print(
+            "Cloud snapshot skipped: "
+            "INGEST_API_KEY is not configured."
+        )
+
+        return False
+
+    timestamp = datetime.now().strftime(
+        "%Y-%m-%d %H:%M:%S"
+    )
+
+    snapshot_data = {
+        "timestamp": timestamp,
+        "system": system_snapshot,
+        "processes": processes,
+        "network": network_connections,
+        "risk_score": int(risk_score)
+    }
+
+    try:
+
+        request_data = json.dumps(
+            snapshot_data
+        ).encode("utf-8")
+
+        request = Request(
+            CLOUD_SNAPSHOT_URL,
+            data=request_data,
+            headers={
+                "Content-Type": "application/json",
+                "X-SentinelX-Key": CLOUD_INGEST_KEY
+            },
+            method="POST"
+        )
+
+        with urlopen(
+            request,
+            timeout=20
+        ) as response:
+
+            response.read()
+
+            if response.status in (200, 201):
+
+                print(
+                    "Windows monitoring snapshot "
+                    "uploaded successfully."
+                )
+
+                return True
+
+            print(
+                f"Cloud snapshot returned HTTP "
+                f"{response.status}"
+            )
+
+            return False
+
+    except HTTPError as error:
+
+        print(
+            f"Cloud snapshot HTTP error: "
+            f"{error.code} {error.reason}"
+        )
+
+        return False
+
+    except URLError as error:
+
+        print(
+            f"Cloud snapshot connection error: "
+            f"{error.reason}"
+        )
+
+        return False
+
+    except Exception as error:
+
+        print(
+            f"Cloud snapshot error: {error}"
+        )
+
+        return False
+
+
+# ============================================================
+# SAVE LOCAL + CLOUD EVENT
+# ============================================================
+
+def save_and_sync_event(
+    event_type,
+    message,
+    severity="INFO",
+    process=None,
+    risk_score=0
+):
+    """
+    Save an event locally and then attempt cloud ingestion.
+
+    Local storage is never dependent on cloud availability.
+    """
+
+    timestamp = datetime.now().strftime(
+        "%Y-%m-%d %H:%M:%S"
+    )
+
+    # --------------------------------------------------------
+    # LOCAL STORAGE
+    # --------------------------------------------------------
+
+    local_saved = save_event(
+        event_type=event_type,
+        message=message,
+        severity=severity,
+        process=process,
+        risk_score=risk_score,
+        timestamp=timestamp
+    )
+
+    # --------------------------------------------------------
+    # CLOUD STORAGE
+    # --------------------------------------------------------
+
+    cloud_saved = send_event_to_cloud(
+        event_type=event_type,
+        message=message,
+        severity=severity,
+        process=process,
+        risk_score=risk_score,
+        timestamp=timestamp
+    )
+
+    return local_saved, cloud_saved
+
+
+# ============================================================
+# BANNER
+# ============================================================
+
 def show_banner():
+
     print("================================")
     print("          SENTINELX")
     print(" Cybersecurity Monitoring System")
     print("================================")
 
+
+# ============================================================
+# MONITORING CYCLE
+# ============================================================
 
 def monitoring_cycle():
 
@@ -41,6 +400,9 @@ def monitoring_cycle():
 
     display_system_status()
 
+    # Collect actual Windows system information
+    system_snapshot = collect_system_snapshot()
+
     # --------------------------------------------
     # PROCESS MONITORING
     # --------------------------------------------
@@ -61,9 +423,6 @@ def monitoring_cycle():
     # --------------------------------------------
     # PROCESS METADATA ANALYSIS
     # --------------------------------------------
-
-    # Processes that may require additional
-    # command-line / parent-process investigation.
 
     metadata_processes = {
         "powershell.exe",
@@ -127,24 +486,17 @@ def monitoring_cycle():
             f"{alert['reason']}"
         )
 
-        # Log alert
-
         log_event(
             "SECURITY_ALERT",
             message,
             alert["severity"]
         )
 
-        # Calculate risk contribution
-        # for this individual alert.
-
         alert_risk_score = calculate_risk_score(
             [alert]
         )
 
-        # Save alert to database.
-
-        save_event(
+        save_and_sync_event(
             event_type="SECURITY_ALERT",
             message=message,
             severity=alert["severity"],
@@ -160,17 +512,13 @@ def monitoring_cycle():
 
     display_risk_score(risk_score)
 
-    # Log risk assessment
-
     log_event(
         "RISK_ASSESSMENT",
         f"Risk score: {risk_score}/100",
         "INFO"
     )
 
-    # Save risk assessment
-
-    save_event(
+    save_and_sync_event(
         event_type="RISK_ASSESSMENT",
         message=f"Risk score: {risk_score}/100",
         severity="INFO",
@@ -198,17 +546,13 @@ def monitoring_cycle():
         f"{connection_count}"
     )
 
-    # Log network information
-
     log_event(
         "NETWORK",
         f"{connection_count} network records collected",
         "INFO"
     )
 
-    # Save network information
-
-    save_event(
+    save_and_sync_event(
         event_type="NETWORK",
         message=(
             f"{connection_count} "
@@ -217,6 +561,42 @@ def monitoring_cycle():
         severity="INFO",
         risk_score=risk_score
     )
+
+    # --------------------------------------------
+    # WINDOWS SNAPSHOT
+    # --------------------------------------------
+
+    print(
+        "Preparing Windows monitoring snapshot..."
+    )
+
+    try:
+
+        snapshot_result = send_monitoring_snapshot(
+            system_snapshot=system_snapshot,
+            processes=process_list,
+            network_connections=connections,
+            risk_score=risk_score
+        )
+
+        if snapshot_result:
+
+            print(
+                "Windows snapshot synchronization: SUCCESS"
+            )
+
+        else:
+
+            print(
+                "Windows snapshot synchronization: FAILED"
+            )
+
+    except Exception as error:
+
+        print(
+            f"Windows snapshot synchronization "
+            f"error: {error}"
+        )
 
     # --------------------------------------------
     # CYCLE COMPLETE
@@ -231,6 +611,10 @@ def monitoring_cycle():
     print("=======================================")
 
 
+# ============================================================
+# MAIN
+# ============================================================
+
 def main():
 
     print("Starting SentinelX...\n")
@@ -242,6 +626,35 @@ def main():
     # --------------------------------------------
 
     initialize_database()
+
+    # --------------------------------------------
+    # CLOUD STATUS
+    # --------------------------------------------
+
+    if CLOUD_INGEST_KEY:
+
+        print(
+            "Cloud ingestion: ENABLED"
+        )
+
+        print(
+            f"Cloud API: {CLOUD_INGEST_URL}"
+        )
+
+        print(
+            f"Snapshot API: {CLOUD_SNAPSHOT_URL}"
+        )
+
+    else:
+
+        print(
+            "Cloud ingestion: DISABLED"
+        )
+
+        print(
+            "Set INGEST_API_KEY to enable "
+            "cloud upload."
+        )
 
     # --------------------------------------------
     # START LOGGING
@@ -280,23 +693,23 @@ def main():
             "\nSentinelX stopped by user."
         )
 
-        # Log shutdown
-
         log_event(
             "SYSTEM",
             "SentinelX stopped by user",
             "INFO"
         )
 
-        # Save shutdown event
-
-        save_event(
+        save_and_sync_event(
             event_type="SYSTEM",
             message="SentinelX stopped by user",
             severity="INFO",
             risk_score=0
         )
 
+
+# ============================================================
+# PROGRAM ENTRY POINT
+# ============================================================
 
 if __name__ == "__main__":
     main()
