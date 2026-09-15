@@ -3,7 +3,6 @@ import os
 import json
 import platform
 import socket
-import getpass
 
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
@@ -36,7 +35,6 @@ CLOUD_INGEST_KEY = os.environ.get(
     "INGEST_API_KEY"
 )
 
-# Windows monitoring snapshot endpoint
 CLOUD_SNAPSHOT_URL = os.environ.get(
     "SENTINELX_SNAPSHOT_URL",
     "https://sentinelx-os1m.onrender.com/api/snapshot"
@@ -57,6 +55,26 @@ SEVERITY_PRIORITY = {
 
 
 # ============================================================
+# PROCESS STATE TRACKING
+# ============================================================
+
+# Stores suspicious process identities that were already
+# observed during previous monitoring cycles.
+#
+# Primary identity:
+#
+#     process_name + PID
+#
+# If PID information is unavailable, SentinelX falls back
+# to process name.
+#
+# This prevents the same continuously-running process from
+# generating a new SECURITY_ALERT every 30 seconds.
+
+PREVIOUS_SUSPICIOUS_PROCESSES = set()
+
+
+# ============================================================
 # ALERT DEDUPLICATION
 # ============================================================
 
@@ -67,21 +85,6 @@ def deduplicate_alerts(alerts):
 
     If the same process is detected multiple times,
     the alert with the highest severity is retained.
-
-    Example:
-
-        Basic detector:
-        rundll32.exe -> LOW
-
-        Metadata detector:
-        rundll32.exe -> HIGH
-
-    Final result:
-
-        rundll32.exe -> HIGH
-
-    This prevents one real detection from being counted
-    as multiple security alerts.
     """
 
     if not alerts:
@@ -103,23 +106,10 @@ def deduplicate_alerts(alerts):
             alert.get("severity", "INFO")
         ).upper().strip()
 
-        # ----------------------------------------------------
-        # Use process as the primary correlation key.
-        #
-        # SentinelX treats multiple detections of the same
-        # monitored process as one security alert per cycle.
-        # ----------------------------------------------------
-
         alert_key = process
 
-        # If process name is unavailable, use reason so that
-        # the alert is still handled safely.
         if not alert_key:
             alert_key = reason.lower()
-
-        # ----------------------------------------------------
-        # First occurrence
-        # ----------------------------------------------------
 
         if alert_key not in unique_alerts:
 
@@ -133,12 +123,6 @@ def deduplicate_alerts(alerts):
             }
 
             continue
-
-        # ----------------------------------------------------
-        # Duplicate occurrence
-        #
-        # Keep the more serious detection.
-        # ----------------------------------------------------
 
         existing_alert = unique_alerts[alert_key]
 
@@ -172,32 +156,246 @@ def deduplicate_alerts(alerts):
 
         elif new_score == existing_score:
 
-            # If both have the same severity, prefer the
-            # more specific detection reason when possible.
-            if reason and reason != existing_alert.get(
+            existing_reason = existing_alert.get(
                 "reason",
                 ""
+            )
+
+            if (
+                reason
+                and reason != existing_reason
+                and len(reason) > len(existing_reason)
             ):
 
-                existing_reason = existing_alert.get(
-                    "reason",
-                    ""
-                )
-
-                if len(reason) > len(existing_reason):
-
-                    unique_alerts[alert_key] = {
-                        "process": alert.get(
-                            "process",
-                            "Unknown"
-                        ),
-                        "reason": reason,
-                        "severity": severity
-                    }
+                unique_alerts[alert_key] = {
+                    "process": alert.get(
+                        "process",
+                        "Unknown"
+                    ),
+                    "reason": reason,
+                    "severity": severity
+                }
 
     return list(
         unique_alerts.values()
     )
+
+
+# ============================================================
+# PROCESS STATE HELPERS
+# ============================================================
+
+def normalize_process_name(process_name):
+    """
+    Normalize a process name for reliable comparison.
+    """
+
+    return str(
+        process_name or ""
+    ).lower().strip()
+
+
+def get_process_pid(process):
+    """
+    Safely extract a PID from a process dictionary.
+
+    Different process-monitoring implementations may use
+    different key names, so SentinelX checks common variants.
+    """
+
+    possible_keys = [
+        "pid",
+        "PID",
+        "process_id",
+        "ProcessId",
+        "processId"
+    ]
+
+    for key in possible_keys:
+
+        if key in process:
+
+            try:
+
+                return int(
+                    process[key]
+                )
+
+            except (
+                TypeError,
+                ValueError
+            ):
+
+                return None
+
+    return None
+
+
+def build_current_process_state(process_list):
+    """
+    Build a lookup of currently running processes.
+
+    Example:
+
+        {
+            "rundll32.exe": [1234],
+            "powershell.exe": [4567, 7890]
+        }
+    """
+
+    current_processes = {}
+
+    for process in process_list:
+
+        if not isinstance(
+            process,
+            dict
+        ):
+            continue
+
+        name = normalize_process_name(
+            process.get(
+                "name",
+                ""
+            )
+        )
+
+        if not name:
+            continue
+
+        pid = get_process_pid(
+            process
+        )
+
+        if name not in current_processes:
+
+            current_processes[name] = []
+
+        if pid is not None:
+
+            current_processes[name].append(
+                pid
+            )
+
+    return current_processes
+
+
+def filter_new_process_alerts(
+    alerts,
+    process_list
+):
+    """
+    Return only alerts belonging to newly observed
+    suspicious process executions.
+
+    Existing processes are suppressed from generating
+    another SECURITY_ALERT.
+
+    PID is used whenever available.
+
+    Process name is used as a fallback when PID is
+    unavailable.
+
+    IMPORTANT:
+    This function only controls NEW ALERT GENERATION.
+
+    It does NOT determine the current risk score.
+    """
+
+    global PREVIOUS_SUSPICIOUS_PROCESSES
+
+    if not alerts:
+
+        PREVIOUS_SUSPICIOUS_PROCESSES = set()
+
+        return []
+
+    current_processes = build_current_process_state(
+        process_list
+    )
+
+    current_state = set()
+
+    new_alerts = []
+
+    for alert in alerts:
+
+        process_name = normalize_process_name(
+            alert.get(
+                "process",
+                ""
+            )
+        )
+
+        if not process_name:
+
+            continue
+
+        pids = current_processes.get(
+            process_name,
+            []
+        )
+
+        # ----------------------------------------------------
+        # PID-BASED TRACKING
+        # ----------------------------------------------------
+
+        if pids:
+
+            for pid in pids:
+
+                state_key = (
+                    process_name,
+                    pid
+                )
+
+                current_state.add(
+                    state_key
+                )
+
+                if (
+                    state_key
+                    not in PREVIOUS_SUSPICIOUS_PROCESSES
+                ):
+
+                    new_alert = dict(
+                        alert
+                    )
+
+                    new_alert["pid"] = pid
+
+                    new_alerts.append(
+                        new_alert
+                    )
+
+        # ----------------------------------------------------
+        # NAME-BASED FALLBACK
+        # ----------------------------------------------------
+
+        else:
+
+            state_key = (
+                process_name,
+                "NAME_ONLY"
+            )
+
+            current_state.add(
+                state_key
+            )
+
+            if (
+                state_key
+                not in PREVIOUS_SUSPICIOUS_PROCESSES
+            ):
+
+                new_alerts.append(
+                    dict(alert)
+                )
+
+    # Update state for the next monitoring cycle.
+    PREVIOUS_SUSPICIOUS_PROCESSES = current_state
+
+    return new_alerts
 
 
 # ============================================================
@@ -326,22 +524,10 @@ def collect_system_snapshot():
 
         hostname = "Unknown"
 
-    # --------------------------------------------------------
-    # SentinelX dashboard display name
-    #
+    # SentinelX dashboard display name.
     # This does NOT change the actual Windows account.
-    # --------------------------------------------------------
 
-    try:
-
-        username = "Suraj Baliarsingh"
-
-    except Exception:
-
-        username = os.environ.get(
-            "USERNAME",
-            "Unknown"
-        )
+    username = "Suraj Baliarsingh"
 
     try:
 
@@ -379,14 +565,6 @@ def send_monitoring_snapshot(
 ):
     """
     Upload the latest Windows monitoring snapshot.
-
-    Snapshot contains:
-
-        - Windows system information
-        - running processes
-        - network connections
-        - current risk score
-        - timestamp
     """
 
     if not CLOUD_INGEST_KEY:
@@ -497,10 +675,6 @@ def save_and_sync_event(
         "%Y-%m-%d %H:%M:%S"
     )
 
-    # --------------------------------------------------------
-    # LOCAL STORAGE
-    # --------------------------------------------------------
-
     local_saved = save_event(
         event_type=event_type,
         message=message,
@@ -509,10 +683,6 @@ def save_and_sync_event(
         risk_score=risk_score,
         timestamp=timestamp
     )
-
-    # --------------------------------------------------------
-    # CLOUD STORAGE
-    # --------------------------------------------------------
 
     cloud_saved = send_event_to_cloud(
         event_type=event_type,
@@ -564,7 +734,6 @@ def monitoring_cycle():
 
     display_system_status()
 
-    # Collect actual Windows system information
     system_snapshot = collect_system_snapshot()
 
     # --------------------------------------------
@@ -605,9 +774,12 @@ def monitoring_cycle():
 
     for process in process_list:
 
-        process_name = process[
-            "name"
-        ].lower()
+        process_name = normalize_process_name(
+            process.get(
+                "name",
+                ""
+            )
+        )
 
         if process_name in metadata_processes:
 
@@ -629,10 +801,15 @@ def monitoring_cycle():
 
             except Exception as error:
 
+                pid = process.get(
+                    "pid",
+                    "Unknown"
+                )
+
                 print(
                     f"Metadata analysis failed for "
                     f"{process_name} "
-                    f"(PID {process['pid']}): "
+                    f"(PID {pid}): "
                     f"{error}"
                 )
 
@@ -641,7 +818,7 @@ def monitoring_cycle():
                     (
                         f"Metadata analysis failed for "
                         f"{process_name} "
-                        f"(PID {process['pid']})"
+                        f"(PID {pid})"
                     ),
                     "INFO"
                 )
@@ -685,24 +862,93 @@ def monitoring_cycle():
             "INFO"
         )
 
-    # --------------------------------------------
-    # SECURITY ANALYSIS DISPLAY
-    # --------------------------------------------
+    # ========================================================
+    # IMPORTANT:
+    #
+    # Keep ALL currently active alerts separately.
+    #
+    # These are used for CURRENT RISK.
+    #
+    # Only NEW alerts are used for SECURITY_ALERT events.
+    # ========================================================
 
-    display_alerts(
+    active_alerts = list(
         alerts
     )
 
     # --------------------------------------------
-    # SAVE SECURITY ALERTS
+    # NEW PROCESS EXECUTION FILTER
     # --------------------------------------------
 
-    for alert in alerts:
+    previous_alert_count = len(
+        alerts
+    )
+
+    new_alerts = filter_new_process_alerts(
+        alerts,
+        process_list
+    )
+
+    suppressed_alert_count = (
+        previous_alert_count
+        - len(new_alerts)
+    )
+
+    if suppressed_alert_count > 0:
+
+        print(
+            f"Process-state tracking suppressed "
+            f"{suppressed_alert_count} "
+            f"already-active alert(s)."
+        )
+
+        log_event(
+            "SYSTEM",
+            (
+                f"Process-state tracking suppressed "
+                f"{suppressed_alert_count} "
+                f"already-active alert(s)"
+            ),
+            "INFO"
+        )
+
+    # --------------------------------------------
+    # SECURITY ANALYSIS DISPLAY
+    # --------------------------------------------
+
+    if new_alerts:
+
+        display_alerts(
+            new_alerts
+        )
+
+    else:
+
+        print(
+            "No new suspicious process executions detected."
+        )
+
+    # --------------------------------------------
+    # SAVE NEW SECURITY ALERTS ONLY
+    # --------------------------------------------
+
+    for alert in new_alerts:
 
         message = (
             f"{alert['process']} - "
             f"{alert['reason']}"
         )
+
+        pid = alert.get(
+            "pid"
+        )
+
+        if pid is not None:
+
+            message = (
+                f"{message} "
+                f"(PID: {pid})"
+            )
 
         log_event(
             "SECURITY_ALERT",
@@ -722,12 +968,28 @@ def monitoring_cycle():
             risk_score=alert_risk_score
         )
 
-    # --------------------------------------------
-    # OVERALL RISK ASSESSMENT
-    # --------------------------------------------
+    # ========================================================
+    # CURRENT RISK ASSESSMENT
+    #
+    # IMPORTANT:
+    #
+    # Risk is calculated from ALL currently active
+    # suspicious processes, not only newly generated alerts.
+    #
+    # Therefore:
+    #
+    # New rundll32.exe:
+    #     SECURITY_ALERT + Risk 20
+    #
+    # Same rundll32.exe next cycle:
+    #     No SECURITY_ALERT + Risk 20
+    #
+    # rundll32.exe disappears:
+    #     No active alert + Risk 0
+    # ========================================================
 
     risk_score = calculate_risk_score(
-        alerts
+        active_alerts
     )
 
     display_risk_score(
