@@ -1,129 +1,31 @@
 ﻿/* ============================================================
-   SENTINELX - DASHBOARD JAVASCRIPT
+   SENTINELX DASHBOARD
    Cybersecurity Monitoring System
    ============================================================ */
 
-let API_BASE;
-
-if (window.SENTINELX_API_BASE) {
-
-    API_BASE = window.SENTINELX_API_BASE;
-
-} else if (
-    window.location.hostname === "localhost" ||
-    window.location.hostname === "127.0.0.1"
-) {
-
-    API_BASE = "http://127.0.0.1:5000";
-
-} else {
-
-    API_BASE = "https://sentinelx-os1m.onrender.com";
-
-}
+"use strict";
 
 
 /* ============================================================
-   DOM ELEMENTS
+   API CONFIGURATION
    ============================================================ */
 
-// Overview
-const systemStatus = document.getElementById("systemStatus");
-const totalEvents = document.getElementById("totalEvents");
-const riskScore = document.getElementById("riskScore");
-const riskLevel = document.getElementById("riskLevel");
-const securityAlerts = document.getElementById("securityAlerts");
+const LOCAL_API = "http://127.0.0.1:5000";
+const PRODUCTION_API = "https://sentinelx-os1m.onrender.com";
 
-// Statistics
-const statTotalEvents = document.getElementById("statTotalEvents");
-const statSecurityAlerts = document.getElementById("statSecurityAlerts");
-const statProcesses = document.getElementById("statProcesses");
-const statNetwork = document.getElementById("statNetwork");
-const statCurrentRisk = document.getElementById("statCurrentRisk");
-const statHighestRisk = document.getElementById("statHighestRisk");
+const isLocalEnvironment =
+    window.location.protocol === "file:" ||
+    window.location.hostname === "localhost" ||
+    window.location.hostname === "127.0.0.1";
 
-// Alerts
-const alertsContainer = document.getElementById("alertsContainer");
-const alertCountBadge = document.getElementById("alertCountBadge");
-
-// Risk
-const riskNumber = document.getElementById("riskNumber");
-const riskStatus = document.getElementById("riskStatus");
-
-const riskSummaryCurrent =
-    document.getElementById("riskSummaryCurrent");
-
-const riskSummaryCurrentLevel =
-    document.getElementById("riskSummaryCurrentLevel");
-
-const riskSummaryHighest =
-    document.getElementById("riskSummaryHighest");
-
-const riskSummaryHighestLevel =
-    document.getElementById("riskSummaryHighestLevel");
-
-const riskSummaryTrend =
-    document.getElementById("riskSummaryTrend");
-
-const riskSummaryTrendDetail =
-    document.getElementById("riskSummaryTrendDetail");
-
-// Events
-const eventsTableBody =
-    document.getElementById("eventsTableBody");
-
-// System information
-const hostname =
-    document.getElementById("hostname");
-
-const operatingSystem =
-    document.getElementById("operatingSystem");
-
-const osVersion =
-    document.getElementById("osVersion");
-
-const username =
-    document.getElementById("username");
-
-// Processes
-const processTableBody =
-    document.getElementById("processTableBody");
-
-const processCount =
-    document.getElementById("processCount");
-
-const processSearch =
-    document.getElementById("processSearch");
-
-// Network
-const networkTableBody =
-    document.getElementById("networkTableBody");
-
-const networkCount =
-    document.getElementById("networkCount");
-
-const networkEstablished =
-    document.getElementById("networkEstablished");
-
-const networkListening =
-    document.getElementById("networkListening");
-
-const networkSearch =
-    document.getElementById("networkSearch");
-
-// Other
-const lastUpdated =
-    document.getElementById("lastUpdated");
-
-const refreshBtn =
-    document.getElementById("refreshBtn");
-
-const reportBtn =
-    document.getElementById("reportBtn");
+let API_BASE =
+    isLocalEnvironment
+        ? LOCAL_API
+        : PRODUCTION_API;
 
 
 /* ============================================================
-   GLOBAL DATA
+   GLOBAL STATE
    ============================================================ */
 
 let currentProcesses = [];
@@ -131,157 +33,329 @@ let currentNetworkConnections = [];
 let currentEvents = [];
 let currentAlerts = [];
 
+let currentRisk = 0;
+let highestRisk = 0;
+
+let totalEventCount = 0;
+
 let riskChart = null;
+
+let refreshInProgress = false;
+
+let autoRefreshTimer = null;
 
 
 /* ============================================================
-   API HELPER
+   BASIC HELPERS
    ============================================================ */
 
-async function fetchAPI(endpoint) {
+function escapeHTML(value) {
 
-    try {
+    if (
+        value === null ||
+        value === undefined
+    ) {
+        return "";
+    }
 
-        const response = await fetch(
-            `${API_BASE}${endpoint}`,
+    return String(value)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+}
+
+
+function firstDefined(...values) {
+
+    for (const value of values) {
+
+        if (
+            value !== undefined &&
+            value !== null &&
+            value !== ""
+        ) {
+            return value;
+        }
+    }
+
+    return "";
+}
+
+
+function toNumber(
+    value,
+    fallback = 0
+) {
+
+    if (
+        typeof value === "number" &&
+        Number.isFinite(value)
+    ) {
+        return value;
+    }
+
+    if (
+        typeof value === "string"
+    ) {
+
+        const cleaned =
+            value.replace(
+                /[^\d.-]/g,
+                ""
+            );
+
+        const parsed =
+            Number(cleaned);
+
+        if (
+            Number.isFinite(parsed)
+        ) {
+            return parsed;
+        }
+    }
+
+    return fallback;
+}
+
+
+function normalizeRisk(value) {
+
+    const number =
+        toNumber(
+            value,
+            0
+        );
+
+    return Math.max(
+        0,
+        Math.min(
+            100,
+            number
+        )
+    );
+}
+
+
+/* ============================================================
+   API REQUEST
+   ============================================================ */
+
+async function requestAPI(
+    baseURL,
+    endpoint,
+    options = {}
+) {
+
+    const response =
+        await fetch(
+            `${baseURL}${endpoint}`,
             {
-                method: "GET",
-                cache: "no-store"
+                ...options,
+
+                headers: {
+                    "Accept":
+                        "application/json, text/plain, */*",
+
+                    ...(options.headers || {})
+                }
             }
         );
 
-        if (!response.ok) {
 
-            throw new Error(
-                `HTTP ${response.status} - ${response.statusText}`
-            );
+    if (!response.ok) {
 
-        }
+        throw new Error(
+            `API request failed: ${response.status} ${response.statusText}`
+        );
+    }
+
+
+    const contentType =
+        response.headers.get(
+            "content-type"
+        ) || "";
+
+
+    if (
+        contentType.includes(
+            "application/json"
+        )
+    ) {
 
         return await response.json();
+    }
 
-    } catch (error) {
 
-        console.error(
-            `SentinelX API Error: ${endpoint}`,
-            error
+    const text =
+        await response.text();
+
+
+    try {
+
+        return JSON.parse(text);
+
+    } catch {
+
+        return text;
+    }
+}
+
+
+/* ============================================================
+   API FETCH WITH AUTOMATIC FALLBACK
+   ============================================================ */
+
+async function fetchAPI(
+    endpoint,
+    options = {}
+) {
+
+    try {
+
+        return await requestAPI(
+            API_BASE,
+            endpoint,
+            options
         );
 
-        return null;
-    }
-}
+    } catch (primaryError) {
 
+        console.warn(
+            `Primary API failed: ${API_BASE}${endpoint}`,
+            primaryError
+        );
 
-/* ============================================================
-   STATUS
-   ============================================================ */
-
-async function loadStatus() {
-
-    const data = await fetchAPI("/api/status");
-
-    if (!data) {
-
-        if (systemStatus) {
-            systemStatus.textContent = "OFFLINE";
-        }
-
-        return;
-    }
-
-
-    if (systemStatus) {
-
-        const status =
-            String(data.status || "").toLowerCase();
 
         if (
-            status === "online" ||
-            status === "running"
+            API_BASE !== PRODUCTION_API
         ) {
 
-            systemStatus.textContent = "ONLINE";
-
-        } else {
-
-            systemStatus.textContent =
-                String(data.status || "ONLINE").toUpperCase();
-
-        }
-    }
-
-
-    if (totalEvents) {
-
-        const total =
-            Number(
-                data.total_events ??
-                data.event_count ??
-                data.total ??
-                0
+            console.warn(
+                "Switching to production API:",
+                PRODUCTION_API
             );
 
-        totalEvents.textContent =
-            total.toLocaleString();
 
+            try {
+
+                const data =
+                    await requestAPI(
+                        PRODUCTION_API,
+                        endpoint,
+                        options
+                    );
+
+
+                API_BASE =
+                    PRODUCTION_API;
+
+
+                console.log(
+                    "SentinelX API fallback successful:",
+                    API_BASE
+                );
+
+
+                return data;
+
+            } catch (fallbackError) {
+
+                console.error(
+                    `Production API also failed: ${PRODUCTION_API}${endpoint}`,
+                    fallbackError
+                );
+
+
+                throw fallbackError;
+            }
+        }
+
+
+        throw primaryError;
     }
 }
 
 
 /* ============================================================
-   SYSTEM INFORMATION
+   ARRAY NORMALIZATION
    ============================================================ */
 
-async function loadSystemInfo() {
+function normalizeArray(data) {
 
-    const data = await fetchAPI("/api/system");
-
-    if (!data) {
-        return;
+    if (
+        Array.isArray(data)
+    ) {
+        return data;
     }
 
 
-    if (hostname) {
-
-        hostname.textContent =
-            data.hostname ??
-            data.Hostname ??
-            "Unknown";
-
+    if (
+        !data ||
+        typeof data !== "object"
+    ) {
+        return [];
     }
 
 
-    if (operatingSystem) {
-
-        operatingSystem.textContent =
-            data.operating_system ??
-            data.os ??
-            data.OperatingSystem ??
-            "Unknown";
-
+    if (
+        Array.isArray(data.value)
+    ) {
+        return data.value;
     }
 
 
-    if (osVersion) {
-
-        osVersion.textContent =
-            data.os_version ??
-            data.version ??
-            data.OSVersion ??
-            "Unknown";
-
+    if (
+        Array.isArray(data.data)
+    ) {
+        return data.data;
     }
 
 
-    if (username) {
-
-        username.textContent =
-            data.username ??
-            data.user ??
-            data.Username ??
-            "Unknown";
-
+    if (
+        Array.isArray(data.results)
+    ) {
+        return data.results;
     }
+
+
+    if (
+        Array.isArray(data.events)
+    ) {
+        return data.events;
+    }
+
+
+    if (
+        Array.isArray(data.alerts)
+    ) {
+        return data.alerts;
+    }
+
+
+    if (
+        Array.isArray(data.processes)
+    ) {
+        return data.processes;
+    }
+
+
+    if (
+        Array.isArray(data.network)
+    ) {
+        return data.network;
+    }
+
+
+    if (
+        Array.isArray(data.connections)
+    ) {
+        return data.connections;
+    }
+
+
+    return [];
 }
 
 
@@ -291,26 +365,831 @@ async function loadSystemInfo() {
 
 function getRiskLevel(score) {
 
-    const value = Number(score) || 0;
+    const risk =
+        normalizeRisk(score);
 
 
-    if (value >= 90) {
+    if (risk >= 90) {
         return "CRITICAL";
     }
 
-    if (value >= 70) {
+
+    if (risk >= 75) {
         return "HIGH";
     }
 
-    if (value >= 40) {
+
+    if (risk >= 50) {
         return "MEDIUM";
     }
 
-    if (value >= 20) {
+
+    if (risk >= 20) {
         return "LOW";
     }
 
-    return "NORMAL";
+
+    return "INFO";
+}
+
+
+/* ============================================================
+   ALERT NORMALIZATION
+   ============================================================ */
+
+function normalizeAlertItem(item) {
+
+    if (
+        Array.isArray(item)
+    ) {
+
+        /*
+            Normal alert:
+
+            [
+                id,
+                timestamp,
+                severity,
+                process,
+                message,
+                risk
+            ]
+
+            Legacy alert:
+
+            [
+                timestamp,
+                severity,
+                process,
+                message,
+                risk
+            ]
+        */
+
+
+        if (
+            item.length >= 6
+        ) {
+
+            return {
+
+                id:
+                    item[0],
+
+                timestamp:
+                    item[1],
+
+                severity:
+                    item[2],
+
+                process:
+                    item[3],
+
+                message:
+                    item[4],
+
+                risk_score:
+                    normalizeRisk(
+                        item[5]
+                    )
+            };
+        }
+
+
+        if (
+            item.length === 5
+        ) {
+
+            return {
+
+                id:
+                    "",
+
+                timestamp:
+                    item[0],
+
+                severity:
+                    item[1],
+
+                process:
+                    item[2],
+
+                message:
+                    item[3],
+
+                risk_score:
+                    normalizeRisk(
+                        item[4]
+                    )
+            };
+        }
+
+
+        return {
+
+            id:
+                item[0] || "",
+
+            timestamp:
+                item[1] || "",
+
+            severity:
+                item[2] || "INFO",
+
+            process:
+                item[3] || "",
+
+            message:
+                item[4] || "",
+
+            risk_score:
+                normalizeRisk(
+                    item[5]
+                )
+        };
+    }
+
+
+    if (
+        item &&
+        typeof item === "object"
+    ) {
+
+        const risk =
+            firstDefined(
+                item.risk_score,
+                item.risk,
+                item.score,
+                item.riskScore
+            );
+
+
+        return {
+
+            id:
+                firstDefined(
+                    item.id,
+                    item.event_id,
+                    item.alert_id
+                ),
+
+            timestamp:
+                firstDefined(
+                    item.timestamp,
+                    item.time,
+                    item.created_at,
+                    item.date
+                ),
+
+            severity:
+                firstDefined(
+                    item.severity,
+                    item.level,
+                    item.priority
+                ) || "INFO",
+
+            process:
+                firstDefined(
+                    item.process,
+                    item.process_name,
+                    item.processName,
+                    item.name
+                ),
+
+            message:
+                firstDefined(
+                    item.message,
+                    item.reason,
+                    item.description,
+                    item.alert_message
+                ),
+
+            risk_score:
+                normalizeRisk(risk)
+        };
+    }
+
+
+    return {
+
+        id: "",
+
+        timestamp: "",
+
+        severity: "INFO",
+
+        process: "",
+
+        message: "",
+
+        risk_score: 0
+    };
+}
+
+
+/* ============================================================
+   EVENT NORMALIZATION
+   ============================================================ */
+
+function normalizeEventItem(item) {
+
+    if (
+        Array.isArray(item)
+    ) {
+
+        if (
+            item.length >= 7
+        ) {
+
+            return {
+
+                id:
+                    item[0],
+
+                timestamp:
+                    item[1],
+
+                event_type:
+                    item[2],
+
+                severity:
+                    item[3],
+
+                process:
+                    item[4],
+
+                message:
+                    item[5],
+
+                risk_score:
+                    normalizeRisk(
+                        item[6]
+                    )
+            };
+        }
+
+
+        return {
+
+            id:
+                item[0] || "",
+
+            timestamp:
+                item[1] || "",
+
+            event_type:
+                item[2] || "EVENT",
+
+            severity:
+                item[3] || "INFO",
+
+            process:
+                item[4] || "",
+
+            message:
+                item[5] || "",
+
+            risk_score:
+                normalizeRisk(
+                    item[6]
+                )
+        };
+    }
+
+
+    if (
+        item &&
+        typeof item === "object"
+    ) {
+
+        return {
+
+            id:
+                firstDefined(
+                    item.id,
+                    item.event_id
+                ),
+
+            timestamp:
+                firstDefined(
+                    item.timestamp,
+                    item.time,
+                    item.created_at,
+                    item.date
+                ),
+
+            event_type:
+                firstDefined(
+                    item.event_type,
+                    item.type,
+                    item.event
+                ) || "EVENT",
+
+            severity:
+                firstDefined(
+                    item.severity,
+                    item.level
+                ) || "INFO",
+
+            process:
+                firstDefined(
+                    item.process,
+                    item.process_name,
+                    item.processName
+                ),
+
+            message:
+                firstDefined(
+                    item.message,
+                    item.description,
+                    item.reason
+                ),
+
+            risk_score:
+                normalizeRisk(
+                    firstDefined(
+                        item.risk_score,
+                        item.risk,
+                        item.score
+                    )
+                )
+        };
+    }
+
+
+    return {
+
+        id: "",
+
+        timestamp: "",
+
+        event_type: "EVENT",
+
+        severity: "INFO",
+
+        process: "",
+
+        message: "",
+
+        risk_score: 0
+    };
+}
+
+
+/* ============================================================
+   PROCESS NORMALIZATION
+   ============================================================ */
+
+function normalizeProcessItem(item) {
+
+    if (
+        Array.isArray(item)
+    ) {
+
+        return {
+
+            pid:
+                firstDefined(
+                    item[0],
+                    ""
+                ),
+
+            name:
+                firstDefined(
+                    item[1],
+                    ""
+                ),
+
+            memory:
+                firstDefined(
+                    item[2],
+                    ""
+                ),
+
+            status:
+                firstDefined(
+                    item[3],
+                    ""
+                )
+        };
+    }
+
+
+    if (
+        item &&
+        typeof item === "object"
+    ) {
+
+        const processObject =
+            item.process &&
+            typeof item.process === "object"
+                ? item.process
+                : item;
+
+
+        let memory =
+            firstDefined(
+                processObject.memory,
+                processObject.memory_mb,
+                processObject.memory_usage,
+                processObject.memoryUsage,
+                processObject.ram,
+                processObject.rss
+            );
+
+
+        if (
+            memory &&
+            typeof memory === "object"
+        ) {
+
+            memory =
+                firstDefined(
+                    memory.mb,
+                    memory.value,
+                    memory.rss
+                );
+        }
+
+
+        return {
+
+            pid:
+                firstDefined(
+                    processObject.pid,
+                    processObject.process_id,
+                    processObject.processId,
+                    processObject.id
+                ),
+
+            name:
+                firstDefined(
+                    processObject.name,
+                    processObject.process,
+                    processObject.process_name,
+                    processObject.processName
+                ),
+
+            memory:
+                memory,
+
+            status:
+                firstDefined(
+                    processObject.status,
+                    processObject.state
+                )
+        };
+    }
+
+
+    return {
+
+        pid: "",
+
+        name: "",
+
+        memory: "",
+
+        status: ""
+    };
+}
+
+
+/* ============================================================
+   NETWORK NORMALIZATION
+   ============================================================ */
+
+function normalizeNetworkItem(item) {
+
+    if (
+        Array.isArray(item)
+    ) {
+
+        return {
+
+            protocol:
+                firstDefined(
+                    item[0],
+                    ""
+                ),
+
+            local:
+                firstDefined(
+                    item[1],
+                    ""
+                ),
+
+            foreign:
+                firstDefined(
+                    item[2],
+                    ""
+                ),
+
+            pid:
+                firstDefined(
+                    item[3],
+                    ""
+                ),
+
+            state:
+                firstDefined(
+                    item[4],
+                    ""
+                )
+        };
+    }
+
+
+    if (
+        item &&
+        typeof item === "object"
+    ) {
+
+        return {
+
+            protocol:
+                firstDefined(
+                    item.protocol,
+                    item.proto
+                ),
+
+            local:
+                firstDefined(
+                    item.local,
+                    item.local_address,
+                    item.localAddress
+                ),
+
+            foreign:
+                firstDefined(
+                    item.foreign,
+                    item.remote,
+                    item.remote_address,
+                    item.foreign_address,
+                    item.foreignAddress
+                ),
+
+            pid:
+                firstDefined(
+                    item.pid,
+                    item.process_id,
+                    item.processId
+                ),
+
+            state:
+                firstDefined(
+                    item.state,
+                    item.status
+                )
+        };
+    }
+
+
+    return {
+
+        protocol: "",
+
+        local: "",
+
+        foreign: "",
+
+        pid: "",
+
+        state: ""
+    };
+}
+
+
+/* ============================================================
+   LOAD STATUS
+   ============================================================ */
+
+async function loadStatus() {
+
+    try {
+
+        const data =
+            await fetchAPI(
+                "/api/status"
+            );
+
+
+        const statusElement =
+            document.getElementById(
+                "systemStatus"
+            );
+
+
+        if (statusElement) {
+
+            const statusValue =
+                firstDefined(
+                    data?.status,
+                    data?.system_status,
+                    data?.systemStatus
+                );
+
+
+            const online =
+                data?.online === true ||
+                String(
+                    statusValue
+                ).toLowerCase() ===
+                "online";
+
+
+            if (online) {
+
+                statusElement.innerHTML = `
+                    <span class="status-dot"></span>
+                    <strong>ONLINE</strong>
+                    <small>SentinelX monitoring engine</small>
+                `;
+
+            } else if (statusValue) {
+
+                statusElement.innerHTML = `
+                    <span class="status-dot"></span>
+                    <strong>${escapeHTML(
+                        String(
+                            statusValue
+                        ).toUpperCase()
+                    )}</strong>
+                `;
+            }
+        }
+
+
+        const possibleTotal =
+            firstDefined(
+                data?.total_events,
+                data?.totalEvents,
+                data?.events_count,
+                data?.event_count,
+                data?.total_count
+            );
+
+
+        if (
+            possibleTotal !== "" &&
+            Number.isFinite(
+                Number(
+                    possibleTotal
+                )
+            )
+        ) {
+
+            totalEventCount =
+                Number(
+                    possibleTotal
+                );
+        }
+
+
+        updateTotalEventDisplays();
+
+    } catch (error) {
+
+        console.error(
+            "Status loading failed:",
+            error
+        );
+    }
+}
+
+
+/* ============================================================
+   TOTAL EVENT DISPLAY
+   ============================================================ */
+
+function updateTotalEventDisplays() {
+
+    const total =
+        totalEventCount > 0
+            ? totalEventCount
+            : currentEvents.length;
+
+
+    const elements = [
+
+        "totalEvents",
+
+        "statTotalEvents"
+
+    ];
+
+
+    elements.forEach(
+        id => {
+
+            const element =
+                document.getElementById(
+                    id
+                );
+
+
+            if (element) {
+
+                element.textContent =
+                    total.toLocaleString();
+            }
+        }
+    );
+}
+
+
+/* ============================================================
+   SYSTEM INFORMATION
+   ============================================================ */
+
+async function loadSystemInfo() {
+
+    try {
+
+        const data =
+            await fetchAPI(
+                "/api/system"
+            );
+
+
+        const system =
+            data?.system ||
+            data?.data ||
+            data ||
+            {};
+
+
+        const hostname =
+            firstDefined(
+                system.hostname,
+                system.host,
+                system.computer_name
+            );
+
+
+        const operatingSystem =
+            firstDefined(
+                system.operating_system,
+                system.operatingSystem,
+                system.os
+            );
+
+
+        const osVersion =
+            firstDefined(
+                system.os_version,
+                system.osVersion,
+                system.version
+            );
+
+
+        const username =
+            firstDefined(
+                system.username,
+                system.user,
+                system.user_name
+            );
+
+
+        const fields = {
+
+            hostname,
+
+            operatingSystem,
+
+            osVersion,
+
+            username
+        };
+
+
+        Object.entries(fields).forEach(
+            ([id, value]) => {
+
+                const element =
+                    document.getElementById(
+                        id
+                    );
+
+
+                if (
+                    element &&
+                    value !== ""
+                ) {
+
+                    element.textContent =
+                        value;
+                }
+            }
+        );
+
+    } catch (error) {
+
+        console.error(
+            "System information loading failed:",
+            error
+        );
+    }
 }
 
 
@@ -320,37 +1199,112 @@ function getRiskLevel(score) {
 
 async function loadRisk() {
 
-    const data = await fetchAPI("/api/risk");
+    try {
 
-    if (!data) {
-        return;
+        const data =
+            await fetchAPI(
+                "/api/risk"
+            );
+
+
+        const current =
+            firstDefined(
+                data?.current_risk,
+                data?.currentRisk,
+                data?.risk_score,
+                data?.riskScore,
+                data?.score
+            );
+
+
+        const highest =
+            firstDefined(
+                data?.highest_risk,
+                data?.highestRisk,
+                data?.max_risk,
+                data?.maxRisk
+            );
+
+
+        if (
+            current !== ""
+        ) {
+
+            currentRisk =
+                normalizeRisk(
+                    current
+                );
+        }
+
+
+        if (
+            highest !== ""
+        ) {
+
+            highestRisk =
+                normalizeRisk(
+                    highest
+                );
+        }
+
+
+        if (
+            highestRisk <
+            currentRisk
+        ) {
+
+            highestRisk =
+                currentRisk;
+        }
+
+
+        updateRiskDisplay();
+
+    } catch (error) {
+
+        console.error(
+            "Risk loading failed:",
+            error
+        );
+
+
+        const risks = [
+
+            ...currentAlerts.map(
+                alert =>
+                    alert.risk_score
+            ),
+
+            ...currentEvents.map(
+                event =>
+                    event.risk_score
+            )
+
+        ];
+
+
+        if (
+            risks.length > 0
+        ) {
+
+            currentRisk =
+                normalizeRisk(
+                    risks[0]
+                );
+
+
+            highestRisk =
+                Math.max(
+                    currentRisk,
+                    ...risks.map(
+                        normalizeRisk
+                    )
+                );
+
+
+            updateRiskDisplay();
+        }
     }
-
-
-    const current =
-        Number(
-            data.current_risk ??
-            data.current ??
-            data.risk_score ??
-            0
-        );
-
-
-    const highest =
-        Number(
-            data.highest_risk ??
-            data.highest ??
-            current
-        );
-
-
-    updateRiskDisplay(current);
-
-    updateRiskSummary(
-        current,
-        highest
-    );
-
 }
 
 
@@ -358,232 +1312,468 @@ async function loadRisk() {
    RISK DISPLAY
    ============================================================ */
 
-function updateRiskDisplay(score) {
+function updateRiskDisplay() {
 
-    const value =
-        Math.max(
-            0,
-            Math.min(
-                100,
-                Number(score) || 0
-            )
+    const level =
+        getRiskLevel(
+            currentRisk
         );
 
 
-    const level =
-        getRiskLevel(value);
+    const highestLevel =
+        getRiskLevel(
+            highestRisk
+        );
+
+
+    const riskNumber =
+        document.getElementById(
+            "riskNumber"
+        );
+
+
+    if (riskNumber) {
+
+        riskNumber.textContent =
+            currentRisk;
+    }
+
+
+    const riskScore =
+        document.getElementById(
+            "riskScore"
+        );
 
 
     if (riskScore) {
 
         riskScore.textContent =
-            `${value}/100`;
-
+            `${currentRisk}/100`;
     }
+
+
+    const riskLevel =
+        document.getElementById(
+            "riskLevel"
+        );
 
 
     if (riskLevel) {
 
         riskLevel.textContent =
             level;
-
     }
 
 
-    if (riskNumber) {
+    const statCurrentRisk =
+        document.getElementById(
+            "statCurrentRisk"
+        );
 
-        riskNumber.textContent =
-            value;
 
+    if (statCurrentRisk) {
+
+        statCurrentRisk.textContent =
+            `${currentRisk}/100`;
     }
+
+
+    const statHighestRisk =
+        document.getElementById(
+            "statHighestRisk"
+        );
+
+
+    if (statHighestRisk) {
+
+        statHighestRisk.textContent =
+            `${highestRisk}/100`;
+    }
+
+
+    const riskStatus =
+        document.getElementById(
+            "riskStatus"
+        );
 
 
     if (riskStatus) {
 
         riskStatus.textContent =
             level;
-
     }
 
 
-    if (statCurrentRisk) {
+    const summaryCurrent =
+        document.getElementById(
+            "riskSummaryCurrent"
+        );
 
-        statCurrentRisk.textContent =
-            `${value}/100`;
 
+    if (summaryCurrent) {
+
+        summaryCurrent.textContent =
+            `${currentRisk}/100`;
     }
+
+
+    const summaryCurrentLevel =
+        document.getElementById(
+            "riskSummaryCurrentLevel"
+        );
+
+
+    if (summaryCurrentLevel) {
+
+        summaryCurrentLevel.textContent =
+            level;
+    }
+
+
+    const summaryHighest =
+        document.getElementById(
+            "riskSummaryHighest"
+        );
+
+
+    if (summaryHighest) {
+
+        summaryHighest.textContent =
+            `${highestRisk}/100`;
+    }
+
+
+    const summaryHighestLevel =
+        document.getElementById(
+            "riskSummaryHighestLevel"
+        );
+
+
+    if (summaryHighestLevel) {
+
+        summaryHighestLevel.textContent =
+            highestLevel;
+    }
+
+
+    updateRiskTrend();
 }
 
 
 /* ============================================================
-   RISK SUMMARY
+   RISK TREND
    ============================================================ */
 
-function updateRiskSummary(
-    current,
-    highest
-) {
+function updateRiskTrend() {
 
-    const currentValue =
-        Number(current) || 0;
-
-    const highestValue =
-        Number(highest) || 0;
+    const trendElement =
+        document.getElementById(
+            "riskSummaryTrend"
+        );
 
 
-    const currentLevel =
-        getRiskLevel(currentValue);
+    const detailElement =
+        document.getElementById(
+            "riskSummaryTrendDetail"
+        );
 
-    const highestLevel =
-        getRiskLevel(highestValue);
+
+    if (
+        currentEvents.length < 2
+    ) {
+
+        if (trendElement) {
+
+            trendElement.textContent =
+                "STABLE";
+        }
 
 
-    if (riskSummaryCurrent) {
+        if (detailElement) {
 
-        riskSummaryCurrent.textContent =
-            `${currentValue}/100`;
+            detailElement.textContent =
+                "Not enough history";
+        }
 
+
+        return;
     }
 
 
-    if (riskSummaryCurrentLevel) {
+    const chronological =
+        [
+            ...currentEvents
+        ].reverse();
 
-        riskSummaryCurrentLevel.textContent =
-            currentLevel;
 
+    const latest =
+        normalizeRisk(
+            chronological[
+                chronological.length - 1
+            ].risk_score
+        );
+
+
+    const previous =
+        normalizeRisk(
+            chronological[
+                chronological.length - 2
+            ].risk_score
+        );
+
+
+    let trend =
+        "STABLE";
+
+
+    let detail =
+        "No significant change";
+
+
+    if (
+        latest > previous
+    ) {
+
+        trend =
+            "INCREASING";
+
+
+        detail =
+            `Risk increased from ${previous}/100 to ${latest}/100`;
+
+    } else if (
+        latest < previous
+    ) {
+
+        trend =
+            "DECREASING";
+
+
+        detail =
+            `Risk decreased from ${previous}/100 to ${latest}/100`;
     }
 
 
-    if (riskSummaryHighest) {
+    if (trendElement) {
 
-        riskSummaryHighest.textContent =
-            `${highestValue}/100`;
-
+        trendElement.textContent =
+            trend;
     }
 
 
-    if (riskSummaryHighestLevel) {
+    if (detailElement) {
 
-        riskSummaryHighestLevel.textContent =
-            highestLevel;
-
+        detailElement.textContent =
+            detail;
     }
-
-
-    if (statCurrentRisk) {
-
-        statCurrentRisk.textContent =
-            `${currentValue}/100`;
-
-    }
-
-
-    if (statHighestRisk) {
-
-        statHighestRisk.textContent =
-            `${highestValue}/100`;
-
-    }
-
-
-    updateRiskTrend(
-        currentValue
-    );
 }
 
 
 /* ============================================================
-   ALERTS
+   LOAD SECURITY ALERTS
    ============================================================ */
 
 async function loadAlerts() {
 
-    const data =
-        await fetchAPI("/api/alerts");
+    try {
+
+        const data =
+            await fetchAPI(
+                "/api/alerts"
+            );
 
 
-    let alerts = [];
+        const rows =
+            normalizeArray(
+                data
+            );
 
 
-    if (Array.isArray(data)) {
-
-        alerts = data;
-
-    } else if (
-        data &&
-        Array.isArray(data.alerts)
-    ) {
-
-        alerts = data.alerts;
-
-    }
-
-
-    currentAlerts = alerts;
+        currentAlerts =
+            rows
+                .map(
+                    normalizeAlertItem
+                )
+                .filter(
+                    alert =>
+                        alert.message ||
+                        alert.process ||
+                        alert.timestamp
+                );
 
 
-    if (securityAlerts) {
-
-        securityAlerts.textContent =
-            alerts.length;
-
-    }
+        const alertCount =
+            currentAlerts.length;
 
 
-    if (alertCountBadge) {
-
-        alertCountBadge.textContent =
-            `${alerts.length} ALERTS`;
-
-    }
+        const alertCountBadge =
+            document.getElementById(
+                "alertCountBadge"
+            );
 
 
-    renderAlerts(alerts);
-}
+        const securityAlerts =
+            document.getElementById(
+                "securityAlerts"
+            );
 
 
-/* ============================================================
-   RENDER ALERTS
-   ============================================================ */
-
-function renderAlerts(alerts) {
-
-    if (!alertsContainer) {
-        return;
-    }
+        const statSecurityAlerts =
+            document.getElementById(
+                "statSecurityAlerts"
+            );
 
 
-    if (
-        !Array.isArray(alerts) ||
-        alerts.length === 0
-    ) {
+        if (alertCountBadge) {
 
-        alertsContainer.innerHTML = `
-            <div class="empty-state">
+            alertCountBadge.textContent =
+                alertCount;
+        }
 
-                <div class="empty-icon">
-                    ✓
+
+        if (securityAlerts) {
+
+            securityAlerts.textContent =
+                alertCount;
+        }
+
+
+        if (statSecurityAlerts) {
+
+            statSecurityAlerts.textContent =
+                alertCount;
+        }
+
+
+        const container =
+            document.getElementById(
+                "alertsContainer"
+            );
+
+
+        if (!container) {
+
+            console.error(
+                "SentinelX: alertsContainer not found."
+            );
+
+            return;
+        }
+
+
+        if (
+            currentAlerts.length === 0
+        ) {
+
+            container.innerHTML = `
+                <div class="empty-state">
+                    No security alerts detected.
                 </div>
+            `;
 
-                <p>
-                    No security alerts detected
-                </p>
+            return;
+        }
 
-            </div>
-        `;
 
-        return;
+        container.innerHTML =
+            currentAlerts
+                .map(
+                    createAlertHTML
+                )
+                .join("");
+
+
+        /*
+            Directly bind View Details buttons.
+        */
+
+        const detailButtons =
+            container.querySelectorAll(
+                ".alert-details-link"
+            );
+
+
+        console.log(
+            "SentinelX: View Details buttons found:",
+            detailButtons.length
+        );
+
+
+        detailButtons.forEach(
+            button => {
+
+                button.addEventListener(
+                    "click",
+                    event => {
+
+                        event.preventDefault();
+
+                        event.stopPropagation();
+
+
+                        const index =
+                            Number(
+                                button.getAttribute(
+                                    "data-alert-details"
+                                )
+                            );
+
+
+                        console.log(
+                            "SentinelX: View Details clicked:",
+                            index
+                        );
+
+
+                        if (
+                            Number.isNaN(index)
+                        ) {
+
+                            console.error(
+                                "SentinelX: Invalid alert index:",
+                                index
+                            );
+
+                            return;
+                        }
+
+
+                        const alert =
+                            currentAlerts[index];
+
+
+                        if (!alert) {
+
+                            console.error(
+                                "SentinelX: Alert not found:",
+                                index
+                            );
+
+                            return;
+                        }
+
+
+                        console.log(
+                            "SentinelX: Opening threat details:",
+                            alert
+                        );
+
+
+                        showThreatDetails(
+                            alert
+                        );
+                    }
+                );
+            }
+        );
+
+    } catch (error) {
+
+        console.error(
+            "Alerts loading failed:",
+            error
+        );
     }
-
-
-    const visibleAlerts =
-        alerts.slice(0, 20);
-
-
-    alertsContainer.innerHTML =
-        visibleAlerts
-            .map(createAlertHTML)
-            .join("");
 }
 
 
@@ -591,175 +1781,538 @@ function renderAlerts(alerts) {
    CREATE ALERT HTML
    ============================================================ */
 
-function createAlertHTML(alert) {
+function createAlertHTML(
+    alert,
+    index
+) {
 
-    let id = "N/A";
-    let timestamp = "Unknown";
-    let severity = "INFO";
-    let process = "Unknown";
-    let message = "No message";
-    let risk = 0;
-
-
-    if (Array.isArray(alert)) {
-
-        id = alert[0] ?? "N/A";
-        timestamp = alert[1] ?? "Unknown";
-        severity = alert[2] ?? "INFO";
-        process = alert[3] ?? "Unknown";
-        message = alert[4] ?? "No message";
-        risk = alert[5] ?? 0;
-
-    } else if (
-        alert &&
-        typeof alert === "object"
-    ) {
-
-        id =
-            alert.id ??
-            alert.event_id ??
-            "N/A";
-
-        timestamp =
-            alert.timestamp ??
-            alert.time ??
-            "Unknown";
-
-        severity =
-            alert.severity ??
-            alert.level ??
-            "INFO";
-
-        process =
-            alert.process ??
-            alert.process_name ??
-            "Unknown";
-
-        message =
-            alert.message ??
-            "No message";
-
-        risk =
-            alert.risk_score ??
-            alert.risk ??
-            0;
-    }
+    const severity =
+        String(
+            alert.severity ||
+            "INFO"
+        ).toUpperCase();
 
 
-    const safeSeverity =
-        String(severity).toUpperCase();
+    const risk =
+        normalizeRisk(
+            alert.risk_score
+        );
+
+
+    const process =
+        alert.process ||
+        "Unknown Process";
+
+
+    const message =
+        alert.message ||
+        "Security alert detected";
+
+
+    const timestamp =
+        alert.timestamp ||
+        "Unknown time";
 
 
     return `
+
         <div
             class="alert-item"
-            onclick="showThreatDetails(
-                ${JSON.stringify(id)},
-                ${JSON.stringify(timestamp)},
-                ${JSON.stringify(safeSeverity)},
-                ${JSON.stringify(process)},
-                ${JSON.stringify(message)},
-                ${Number(risk) || 0}
-            )"
+            data-alert-index="${index}"
+            role="article"
         >
 
             <div class="alert-header">
 
-                <span class="severity-badge ${safeSeverity.toLowerCase()}">
-                    ${escapeHTML(safeSeverity)}
+                <span class="alert-severity">
+                    ${escapeHTML(
+                        severity
+                    )}
                 </span>
 
-                <span class="alert-risk">
-                    Risk: ${Number(risk) || 0}/100
+                <span class="alert-time">
+                    ${escapeHTML(
+                        timestamp
+                    )}
                 </span>
 
             </div>
 
 
             <div class="alert-process">
-                ${escapeHTML(process)}
+                ${escapeHTML(
+                    process
+                )}
             </div>
 
 
             <div class="alert-message">
-                ${escapeHTML(message)}
+                ${escapeHTML(
+                    message
+                )}
             </div>
 
 
             <div class="alert-footer">
 
                 <span>
-                    ${escapeHTML(String(timestamp))}
+                    Risk: ${risk}/100
                 </span>
 
-                <span>
-                    Event ID: ${escapeHTML(String(id))}
-                </span>
+
+                <button
+                    type="button"
+                    class="alert-details-link"
+                    data-alert-details="${index}"
+                    aria-label="View threat details for ${escapeHTML(process)}"
+                >
+                    View Details ›
+                </button>
 
             </div>
 
         </div>
+
     `;
 }
 
 
 /* ============================================================
-   EVENTS
+   THREAT DETAILS POPUP
    ============================================================ */
 
-async function loadEvents() {
+function showThreatDetails(
+    alert
+) {
 
-    const data =
-        await fetchAPI("/api/events");
-
-
-    let events = [];
-
-
-    if (Array.isArray(data)) {
-
-        events = data;
-
-    } else if (
-        data &&
-        Array.isArray(data.events)
-    ) {
-
-        events = data.events;
-
+    if (!alert) {
+        return;
     }
 
 
-    currentEvents = events;
+    closeThreatDetails();
 
 
-    renderEvents(events);
+    const popup =
+        document.createElement(
+            "div"
+        );
 
-    updateRiskHistory(events);
 
+    popup.className =
+        "threat-details-popup show";
+
+
+    popup.id =
+        "sentinelxThreatDetailsPopup";
+
+
+    const severity =
+        String(
+            alert.severity ||
+            "INFO"
+        ).toUpperCase();
+
+
+    const risk =
+        normalizeRisk(
+            alert.risk_score
+        );
+
+
+    const process =
+        alert.process ||
+        "Unknown Process";
+
+
+    const timestamp =
+        alert.timestamp ||
+        "Unknown";
+
+
+    const message =
+        alert.message ||
+        "No additional information available.";
+
+
+    const id =
+        alert.id !== undefined &&
+        alert.id !== null &&
+        alert.id !== ""
+            ? alert.id
+            : "N/A";
+
+
+    popup.innerHTML = `
+
+        <div
+            class="threat-details-overlay"
+            data-close-threat="true"
+        >
+
+            <div
+                class="threat-details-content"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="threatDetailsTitle"
+            >
+
+                <button
+                    type="button"
+                    class="threat-details-close"
+                    id="threatDetailsClose"
+                    aria-label="Close threat details"
+                >
+                    ×
+                </button>
+
+
+                <div class="threat-details-header">
+
+                    <div>
+
+                        <div class="threat-details-label">
+                            SECURITY ALERT
+                        </div>
+
+                        <h2 id="threatDetailsTitle">
+                            Threat Details
+                        </h2>
+
+                    </div>
+
+
+                    <div class="threat-details-severity">
+                        ${escapeHTML(
+                            severity
+                        )}
+                    </div>
+
+                </div>
+
+
+                <div class="threat-details-grid">
+
+                    <div class="threat-detail-card">
+
+                        <span class="threat-detail-label">
+                            Event ID
+                        </span>
+
+                        <strong>
+                            ${escapeHTML(
+                                id
+                            )}
+                        </strong>
+
+                    </div>
+
+
+                    <div class="threat-detail-card">
+
+                        <span class="threat-detail-label">
+                            Risk Score
+                        </span>
+
+                        <strong>
+                            ${risk}/100
+                        </strong>
+
+                    </div>
+
+
+                    <div class="threat-detail-card">
+
+                        <span class="threat-detail-label">
+                            Timestamp
+                        </span>
+
+                        <strong>
+                            ${escapeHTML(
+                                timestamp
+                            )}
+                        </strong>
+
+                    </div>
+
+
+                    <div class="threat-detail-card">
+
+                        <span class="threat-detail-label">
+                            Process
+                        </span>
+
+                        <strong>
+                            ${escapeHTML(
+                                process
+                            )}
+                        </strong>
+
+                    </div>
+
+
+                    <div class="threat-detail-message full-width">
+
+                        <span class="threat-detail-label">
+                            Detection Message
+                        </span>
+
+                        <p>
+                            ${escapeHTML(
+                                message
+                            )}
+                        </p>
+
+                    </div>
+
+                </div>
+
+
+                <div class="threat-details-actions">
+
+                    <button
+                        type="button"
+                        id="threatDetailsCloseButton"
+                    >
+                        Close
+                    </button>
+
+                </div>
+
+            </div>
+
+        </div>
+
+    `;
+
+
+    document.body.appendChild(
+        popup
+    );
+
+
+    const closeButton =
+        document.getElementById(
+            "threatDetailsClose"
+        );
+
+
+    const closeButtonBottom =
+        document.getElementById(
+            "threatDetailsCloseButton"
+        );
+
+
+    if (closeButton) {
+
+        closeButton.addEventListener(
+            "click",
+            closeThreatDetails
+        );
+    }
+
+
+    if (closeButtonBottom) {
+
+        closeButtonBottom.addEventListener(
+            "click",
+            closeThreatDetails
+        );
+    }
+
+
+    const overlay =
+        popup.querySelector(
+            ".threat-details-overlay"
+        );
+
+
+    if (overlay) {
+
+        overlay.addEventListener(
+            "click",
+            event => {
+
+                if (
+                    event.target === overlay
+                ) {
+
+                    closeThreatDetails();
+                }
+            }
+        );
+    }
+
+
+    document.body.style.overflow =
+        "hidden";
+
+
+    setTimeout(
+        () => {
+
+            if (closeButton) {
+
+                closeButton.focus();
+            }
+
+        },
+        50
+    );
 }
 
 
 /* ============================================================
-   RENDER EVENTS
+   CLOSE THREAT DETAILS
    ============================================================ */
 
-function renderEvents(events) {
+function closeThreatDetails() {
 
-    if (!eventsTableBody) {
+    const popup =
+        document.getElementById(
+            "sentinelxThreatDetailsPopup"
+        );
+
+
+    if (popup) {
+
+        popup.remove();
+    }
+
+
+    document.body.style.overflow =
+        "";
+}
+
+
+window.showThreatDetails =
+    showThreatDetails;
+
+
+window.closeThreatDetails =
+    closeThreatDetails;
+
+
+/* ============================================================
+   LOAD EVENTS
+   ============================================================ */
+
+async function loadEvents() {
+
+    try {
+
+        const data =
+            await fetchAPI(
+                "/api/events"
+            );
+
+
+        const rows =
+            normalizeArray(
+                data
+            );
+
+
+        currentEvents =
+            rows
+                .map(
+                    normalizeEventItem
+                )
+                .filter(
+                    event =>
+                        event.timestamp ||
+                        event.message ||
+                        event.event_type
+                );
+
+
+        updateTotalEventDisplays();
+
+        updateEventsDisplay();
+
+        updateRiskTrend();
+
+        updateRiskChart();
+
+
+        const eventRisks =
+            currentEvents.map(
+                event =>
+                    normalizeRisk(
+                        event.risk_score
+                    )
+            );
+
+
+        if (
+            eventRisks.length > 0
+        ) {
+
+            const maximum =
+                Math.max(
+                    ...eventRisks
+                );
+
+
+            if (
+                maximum >
+                highestRisk
+            ) {
+
+                highestRisk =
+                    maximum;
+            }
+
+
+            if (
+                currentRisk === 0
+            ) {
+
+                currentRisk =
+                    normalizeRisk(
+                        eventRisks[0]
+                    );
+            }
+        }
+
+
+        updateRiskDisplay();
+
+    } catch (error) {
+
+        console.error(
+            "Events loading failed:",
+            error
+        );
+    }
+}
+
+
+/* ============================================================
+   EVENTS DISPLAY
+   ============================================================ */
+
+function updateEventsDisplay() {
+
+    const tbody =
+        document.getElementById(
+            "eventsTableBody"
+        );
+
+
+    if (!tbody) {
         return;
     }
 
 
     if (
-        !Array.isArray(events) ||
-        events.length === 0
+        currentEvents.length === 0
     ) {
 
-        eventsTableBody.innerHTML = `
+        tbody.innerHTML = `
             <tr>
-                <td colspan="6">
-                    No events found.
+                <td colspan="7">
+                    No events available.
                 </td>
             </tr>
         `;
@@ -768,181 +2321,85 @@ function renderEvents(events) {
     }
 
 
-    const visibleEvents =
-        events.slice(0, 50);
+    tbody.innerHTML =
+        currentEvents
+            .map(
+                event => {
+
+                    const risk =
+                        normalizeRisk(
+                            event.risk_score
+                        );
 
 
-    eventsTableBody.innerHTML =
-        visibleEvents
-            .map(createEventRow)
+                    return `
+
+                        <tr>
+
+                            <td>
+                                ${escapeHTML(
+                                    event.id || "-"
+                                )}
+                            </td>
+
+                            <td>
+                                ${escapeHTML(
+                                    event.timestamp || "-"
+                                )}
+                            </td>
+
+                            <td>
+                                ${escapeHTML(
+                                    event.event_type || "-"
+                                )}
+                            </td>
+
+                            <td>
+                                ${escapeHTML(
+                                    event.severity || "-"
+                                )}
+                            </td>
+
+                            <td>
+                                ${escapeHTML(
+                                    event.process || "-"
+                                )}
+                            </td>
+
+                            <td>
+                                ${escapeHTML(
+                                    event.message || "-"
+                                )}
+                            </td>
+
+                            <td>
+                                ${risk}
+                            </td>
+
+                        </tr>
+
+                    `;
+                }
+            )
             .join("");
 }
 
 
 /* ============================================================
-   CREATE EVENT ROW
+   RISK HISTORY
    ============================================================ */
 
-function createEventRow(event) {
+async function loadRiskHistory() {
 
-    let id = "";
-    let timestamp = "";
-    let eventType = "";
-    let severity = "INFO";
-    let process = "—";
-    let message = "";
-    let risk = 0;
-
-
-    if (Array.isArray(event)) {
-
-        id = event[0] ?? "";
-        timestamp = event[1] ?? "";
-        eventType = event[2] ?? "";
-        severity = event[3] ?? "INFO";
-        process = event[4] ?? "—";
-        message = event[5] ?? "";
-        risk = event[6] ?? 0;
-
-    } else if (
-        event &&
-        typeof event === "object"
-    ) {
-
-        id =
-            event.id ??
-            event.event_id ??
-            "";
-
-        timestamp =
-            event.timestamp ??
-            event.time ??
-            "";
-
-        eventType =
-            event.event_type ??
-            event.type ??
-            event.event ??
-            "";
-
-        severity =
-            event.severity ??
-            "INFO";
-
-        process =
-            event.process ??
-            "—";
-
-        message =
-            event.message ??
-            "";
-
-        risk =
-            event.risk_score ??
-            event.risk ??
-            0;
-    }
-
-
-    const safeSeverity =
-        String(severity).toUpperCase();
-
-
-    return `
-        <tr>
-
-            <td>
-                ${escapeHTML(String(timestamp))}
-            </td>
-
-            <td>
-                ${escapeHTML(String(eventType))}
-            </td>
-
-            <td>
-                <span class="severity-badge ${safeSeverity.toLowerCase()}">
-                    ${escapeHTML(safeSeverity)}
-                </span>
-            </td>
-
-            <td>
-                ${escapeHTML(String(process))}
-            </td>
-
-            <td>
-                ${escapeHTML(String(message))}
-            </td>
-
-            <td>
-                ${Number(risk) || 0}/100
-            </td>
-
-        </tr>
-    `;
+    updateRiskChart();
 }
 
 
 /* ============================================================
-   RISK CHART
+   UPDATE RISK CHART
    ============================================================ */
 
-function getEventRisk(event) {
-
-    if (Array.isArray(event)) {
-
-        return Number(event[6]) || 0;
-
-    }
-
-
-    if (
-        event &&
-        typeof event === "object"
-    ) {
-
-        return Number(
-            event.risk_score ??
-            event.risk ??
-            0
-        );
-    }
-
-
-    return 0;
-}
-
-
-function getEventTimestamp(event) {
-
-    if (Array.isArray(event)) {
-
-        return event[1] ?? "";
-
-    }
-
-
-    if (
-        event &&
-        typeof event === "object"
-    ) {
-
-        return (
-            event.timestamp ??
-            event.time ??
-            ""
-        );
-    }
-
-
-    return "";
-}
-
-
-/* ============================================================
-   UPDATE RISK HISTORY
-   ============================================================ */
-
-function updateRiskHistory(events) {
+function updateRiskChart() {
 
     const canvas =
         document.getElementById(
@@ -955,40 +2412,23 @@ function updateRiskHistory(events) {
     }
 
 
-    const recent =
-        Array.isArray(events)
-            ? events.slice(0, 20).reverse()
-            : [];
-
-
-    const labels =
-        recent.map(
-            event => {
-
-                const timestamp =
-                    getEventTimestamp(event);
-
-                if (!timestamp) {
-                    return "";
-                }
-
-                return String(timestamp)
-                    .split(" ")[1] || timestamp;
-            }
-        );
-
-
-    const values =
-        recent.map(
-            getEventRisk
-        );
-
-
     if (riskChart) {
 
-        riskChart.destroy();
+        try {
 
-        riskChart = null;
+            riskChart.destroy();
+
+        } catch (error) {
+
+            console.warn(
+                "Chart destroy warning:",
+                error
+            );
+        }
+
+
+        riskChart =
+            null;
     }
 
 
@@ -1004,59 +2444,202 @@ function updateRiskHistory(events) {
     }
 
 
+    const chartEvents =
+        [
+            ...currentEvents
+        ]
+        .filter(
+            event =>
+                event.timestamp &&
+                Number.isFinite(
+                    Number(
+                        event.risk_score
+                    )
+                )
+        )
+        .reverse();
+
+
+    if (
+        chartEvents.length === 0
+    ) {
+
+        const context =
+            canvas.getContext(
+                "2d"
+            );
+
+
+        if (context) {
+
+            context.clearRect(
+                0,
+                0,
+                canvas.width,
+                canvas.height
+            );
+        }
+
+
+        return;
+    }
+
+
+    const labels =
+        chartEvents.map(
+            event =>
+                event.timestamp
+        );
+
+
+    const values =
+        chartEvents.map(
+            event =>
+                normalizeRisk(
+                    event.risk_score
+                )
+        );
+
+
     riskChart =
         new Chart(
-            canvas,
+            canvas.getContext(
+                "2d"
+            ),
             {
+
                 type: "line",
 
                 data: {
 
-                    labels: labels,
+                    labels,
 
                     datasets: [
+
                         {
-                            label: "Risk Score",
 
-                            data: values,
+                            label:
+                                "Risk Score",
 
-                            tension: 0.35,
+                            data:
+                                values,
 
-                            fill: false,
+                            fill:
+                                true,
 
-                            borderWidth: 2,
+                            tension:
+                                0.35,
 
-                            pointRadius: 3,
+                            pointRadius:
+                                3,
 
-                            pointHoverRadius: 5
+                            pointHoverRadius:
+                                5
                         }
+
                     ]
                 },
 
+
                 options: {
 
-                    responsive: true,
+                    responsive:
+                        true,
 
-                    maintainAspectRatio: false,
+                    maintainAspectRatio:
+                        false,
+
+
+                    interaction: {
+
+                        intersect:
+                            false,
+
+                        mode:
+                            "index"
+                    },
+
+
+                    plugins: {
+
+                        legend: {
+
+                            display:
+                                false
+                        },
+
+
+                        tooltip: {
+
+                            callbacks: {
+
+                                label:
+                                    context =>
+                                        `Risk: ${context.parsed.y}/100`
+                            }
+                        }
+                    },
+
 
                     scales: {
 
                         y: {
 
-                            beginAtZero: true,
+                            beginAtZero:
+                                true,
 
-                            max: 100,
+                            min:
+                                0,
+
+                            max:
+                                100,
 
                             ticks: {
-                                stepSize: 20
+
+                                stepSize:
+                                    20
+                            },
+
+                            title: {
+
+                                display:
+                                    true,
+
+                                text:
+                                    "Risk Score"
                             }
-                        }
-                    },
+                        },
 
-                    plugins: {
 
-                        legend: {
-                            display: false
+                        x: {
+
+                            ticks: {
+
+                                maxTicksLimit:
+                                    6,
+
+                                callback:
+                                    function(value) {
+
+                                        const label =
+                                            this.getLabelForValue(
+                                                value
+                                            );
+
+
+                                        if (!label) {
+                                            return "";
+                                        }
+
+
+                                        return label.length > 16
+                                            ? label.substring(
+                                                11,
+                                                16
+                                            )
+                                            : label;
+                                    }
+                            }
                         }
                     }
                 }
@@ -1066,727 +2649,50 @@ function updateRiskHistory(events) {
 
 
 /* ============================================================
-   RISK TREND
-   ============================================================ */
-
-function updateRiskTrend(currentRisk) {
-
-    const current =
-        Number(currentRisk) || 0;
-
-
-    let trend = "STABLE";
-    let detail = "Risk remains stable";
-
-
-    if (current >= 70) {
-
-        trend = "ELEVATED";
-        detail = "Higher security risk detected";
-
-    } else if (current >= 40) {
-
-        trend = "MODERATE";
-        detail = "Moderate security risk detected";
-
-    } else if (current >= 20) {
-
-        trend = "LOW";
-        detail = "Low-level security indicators detected";
-
-    } else {
-
-        trend = "STABLE";
-        detail = "No significant change";
-    }
-
-
-    if (riskSummaryTrend) {
-
-        riskSummaryTrend.textContent =
-            trend;
-
-    }
-
-
-    if (riskSummaryTrendDetail) {
-
-        riskSummaryTrendDetail.textContent =
-            detail;
-
-    }
-}
-
-
-/* ============================================================
-   PROCESSES
+   LOAD PROCESSES
    ============================================================ */
 
 async function loadProcesses() {
 
-    const data =
-        await fetchAPI("/api/processes");
-
-
-    let processes = [];
-
-
-    if (Array.isArray(data)) {
-
-        processes = data;
-
-    } else if (
-        data &&
-        Array.isArray(data.processes)
-    ) {
-
-        processes = data.processes;
-
-    }
-
-
-    currentProcesses =
-        processes;
-
-
-    if (processCount) {
-
-        processCount.textContent =
-            `${processes.length} PROCESSES`;
-
-    }
-
-
-    renderProcesses(
-        processes
-    );
-}
-
-
-/* ============================================================
-   RENDER PROCESSES
-   ============================================================ */
-
-function renderProcesses(processes) {
-
-    if (!processTableBody) {
-        return;
-    }
-
-
-    if (
-        !Array.isArray(processes) ||
-        processes.length === 0
-    ) {
-
-        processTableBody.innerHTML = `
-            <tr>
-                <td colspan="4">
-                    No running processes found.
-                </td>
-            </tr>
-        `;
-
-        return;
-    }
-
-
-    const visibleProcesses =
-        processes.slice(0, 100);
-
-
-    processTableBody.innerHTML =
-        visibleProcesses
-            .map(
-                process => {
-
-                    let pid = "";
-                    let name = "";
-                    let memory = "";
-                    let status = "running";
-
-
-                    if (Array.isArray(process)) {
-
-                        pid = process[0] ?? "";
-                        name = process[1] ?? "";
-                        memory = process[2] ?? "";
-                        status = process[3] ?? "running";
-
-                    } else if (
-                        process &&
-                        typeof process === "object"
-                    ) {
-
-                        pid =
-                            process.pid ??
-                            "";
-
-                        name =
-                            process.name ??
-                            process.process ??
-                            "";
-
-                        memory =
-                            process.memory ??
-                            process.memory_usage ??
-                            "";
-
-                        status =
-                            process.status ??
-                            "running";
-                    }
-
-
-                    return `
-                        <tr>
-
-                            <td>
-                                ${escapeHTML(String(pid))}
-                            </td>
-
-                            <td>
-                                ${escapeHTML(String(name))}
-                            </td>
-
-                            <td>
-                                ${escapeHTML(String(memory))}
-                            </td>
-
-                            <td>
-                                ${escapeHTML(String(status))}
-                            </td>
-
-                        </tr>
-                    `;
-                }
-            )
-            .join("");
-}
-
-
-/* ============================================================
-   NETWORK
-   ============================================================ */
-
-async function loadNetwork() {
-
-    const data =
-        await fetchAPI("/api/network");
-
-
-    let connections = [];
-
-
-    if (Array.isArray(data)) {
-
-        connections = data;
-
-    } else if (
-        data &&
-        Array.isArray(data.network)
-    ) {
-
-        connections = data.network;
-
-    } else if (
-        data &&
-        Array.isArray(data.connections)
-    ) {
-
-        connections = data.connections;
-
-    }
-
-
-    currentNetworkConnections =
-        connections;
-
-
-    updateNetworkStatistics(
-        connections
-    );
-
-
-    renderNetwork(
-        connections
-    );
-}
-
-
-/* ============================================================
-   NETWORK STATISTICS
-   ============================================================ */
-
-function updateNetworkStatistics(
-    connections
-) {
-
-    if (!Array.isArray(connections)) {
-
-        connections = [];
-
-    }
-
-
-    const total =
-        connections.length;
-
-
-    let established = 0;
-    let listening = 0;
-
-
-    connections.forEach(
-        connection => {
-
-            let state = "";
-
-
-            if (Array.isArray(connection)) {
-
-                /*
-                 Expected API structure:
-
-                 [protocol,
-                  local_address,
-                  foreign_address,
-                  pid,
-                  state]
-                */
-
-                state =
-                    connection[4] ?? "";
-
-            } else if (
-                connection &&
-                typeof connection === "object"
-            ) {
-
-                state =
-                    connection.state ??
-                    connection.status ??
-                    connection.connection_state ??
-                    "";
-            }
-
-
-            const normalizedState =
-                String(state)
-                    .trim()
-                    .toUpperCase();
-
-
-            if (
-                normalizedState ===
-                "ESTABLISHED"
-            ) {
-
-                established++;
-
-            }
-
-
-            if (
-                normalizedState ===
-                "LISTEN" ||
-
-                normalizedState ===
-                "LISTENING"
-            ) {
-
-                listening++;
-
-            }
-        }
-    );
-
-
-    if (networkCount) {
-
-        networkCount.textContent =
-            total.toLocaleString();
-
-    }
-
-
-    if (networkEstablished) {
-
-        networkEstablished.textContent =
-            established.toLocaleString();
-
-    }
-
-
-    if (networkListening) {
-
-        networkListening.textContent =
-            listening.toLocaleString();
-
-    }
-
-
-    if (statNetwork) {
-
-        statNetwork.textContent =
-            total.toLocaleString();
-
-    }
-}
-
-
-/* ============================================================
-   RENDER NETWORK
-   ============================================================ */
-
-function renderNetwork(
-    connections
-) {
-
-    if (!networkTableBody) {
-        return;
-    }
-
-
-    if (
-        !Array.isArray(connections) ||
-        connections.length === 0
-    ) {
-
-        networkTableBody.innerHTML = `
-            <tr>
-                <td colspan="5">
-                    No network connections found.
-                </td>
-            </tr>
-        `;
-
-        return;
-    }
-
-
-    const visibleConnections =
-        connections.slice(0, 100);
-
-
-    networkTableBody.innerHTML =
-        visibleConnections
-            .map(
-                connection => {
-
-                    let protocol = "";
-                    let localAddress = "";
-                    let foreignAddress = "";
-                    let pid = "";
-                    let state = "";
-
-
-                    if (Array.isArray(connection)) {
-
-                        protocol =
-                            connection[0] ?? "";
-
-                        localAddress =
-                            connection[1] ?? "";
-
-                        foreignAddress =
-                            connection[2] ?? "";
-
-                        pid =
-                            connection[3] ?? "";
-
-                        state =
-                            connection[4] ?? "";
-
-                    } else if (
-                        connection &&
-                        typeof connection === "object"
-                    ) {
-
-                        protocol =
-                            connection.protocol ??
-                            "";
-
-                        localAddress =
-                            connection.local_address ??
-                            connection.local ??
-                            "";
-
-                        foreignAddress =
-                            connection.foreign_address ??
-                            connection.foreign ??
-                            "";
-
-                        pid =
-                            connection.pid ??
-                            "";
-
-                        state =
-                            connection.state ??
-                            connection.status ??
-                            "";
-                    }
-
-
-                    return `
-                        <tr>
-
-                            <td>
-                                ${escapeHTML(String(protocol))}
-                            </td>
-
-                            <td>
-                                ${escapeHTML(String(localAddress))}
-                            </td>
-
-                            <td>
-                                ${escapeHTML(String(foreignAddress))}
-                            </td>
-
-                            <td>
-                                ${escapeHTML(String(pid))}
-                            </td>
-
-                            <td>
-                                ${escapeHTML(String(state))}
-                            </td>
-
-                        </tr>
-                    `;
-                }
-            )
-            .join("");
-}
-
-
-/* ============================================================
-   SECURITY STATISTICS
-   ============================================================ */
-
-async function updateSecurityStatistics() {
-
-    const [
-        status,
-        alerts,
-        processes,
-        network,
-        risk
-    ] = await Promise.all(
-        [
-            fetchAPI("/api/status"),
-            fetchAPI("/api/alerts"),
-            fetchAPI("/api/processes"),
-            fetchAPI("/api/network"),
-            fetchAPI("/api/risk")
-        ]
-    );
-
-
-    /* --------------------------------
-       TOTAL EVENTS
-       -------------------------------- */
-
-    if (statTotalEvents) {
-
-        /*
-         IMPORTANT:
-
-         /api/events returns only recent events.
-
-         Therefore events.length must NOT
-         be used for the total database count.
-
-         /api/status contains the real total.
-        */
-
-        const totalEventsValue =
-            Number(
-                status?.total_events ??
-                status?.event_count ??
-                status?.total ??
-                0
-            );
-
-
-        statTotalEvents.textContent =
-            totalEventsValue.toLocaleString();
-    }
-
-
-    /* --------------------------------
-       SECURITY ALERTS
-       -------------------------------- */
-
-    let alertList = [];
-
-
-    if (Array.isArray(alerts)) {
-
-        alertList = alerts;
-
-    } else if (
-        alerts &&
-        Array.isArray(alerts.alerts)
-    ) {
-
-        alertList =
-            alerts.alerts;
-    }
-
-
-    if (statSecurityAlerts) {
-
-        statSecurityAlerts.textContent =
-            alertList.length.toLocaleString();
-    }
-
-
-    /* --------------------------------
-       PROCESSES
-       -------------------------------- */
-
-    let processList = [];
-
-
-    if (Array.isArray(processes)) {
-
-        processList = processes;
-
-    } else if (
-        processes &&
-        Array.isArray(processes.processes)
-    ) {
-
-        processList =
-            processes.processes;
-    }
-
-
-    if (statProcesses) {
-
-        statProcesses.textContent =
-            processList.length.toLocaleString();
-    }
-
-
-    /* --------------------------------
-       NETWORK
-       -------------------------------- */
-
-    let networkList = [];
-
-
-    if (Array.isArray(network)) {
-
-        networkList = network;
-
-    } else if (
-        network &&
-        Array.isArray(network.network)
-    ) {
-
-        networkList =
-            network.network;
-
-    } else if (
-        network &&
-        Array.isArray(network.connections)
-    ) {
-
-        networkList =
-            network.connections;
-    }
-
-
-    /*
-     Use the same network data to update
-     all network counters.
-    */
-
-    updateNetworkStatistics(
-        networkList
-    );
-
-
-    /* --------------------------------
-       RISK
-       -------------------------------- */
-
-    if (risk) {
-
-        const current =
-            Number(
-                risk.current_risk ??
-                risk.current ??
-                risk.risk_score ??
-                0
-            );
-
-
-        const highest =
-            Number(
-                risk.highest_risk ??
-                risk.highest ??
-                current
-            );
-
-
-        if (statCurrentRisk) {
-
-            statCurrentRisk.textContent =
-                `${current}/100`;
-
-        }
-
-
-        if (statHighestRisk) {
-
-            statHighestRisk.textContent =
-                `${highest}/100`;
-
-        }
-    }
-}
-
-
-/* ============================================================
-   REFRESH DASHBOARD
-   ============================================================ */
-
-async function refreshDashboard() {
-
-    console.log(
-        "Refreshing SentinelX dashboard..."
-    );
-
-
     try {
 
-        await Promise.all(
-            [
-                loadStatus(),
-                loadSystemInfo(),
-                loadRisk(),
-                loadAlerts(),
-                loadEvents(),
-                loadProcesses(),
-                loadNetwork(),
-                updateSecurityStatistics()
-            ]
-        );
+        const data =
+            await fetchAPI(
+                "/api/processes"
+            );
 
 
-        updateLastUpdated();
+        const rows =
+            normalizeArray(
+                data
+            );
 
 
-        console.log(
-            "SentinelX dashboard refreshed."
-        );
+        currentProcesses =
+            rows.map(
+                normalizeProcessItem
+            );
+
+
+        updateProcessesDisplay();
+
+
+        const statProcesses =
+            document.getElementById(
+                "statProcesses"
+            );
+
+
+        if (statProcesses) {
+
+            statProcesses.textContent =
+                currentProcesses.length;
+        }
 
     } catch (error) {
 
         console.error(
-            "Dashboard refresh error:",
+            "Processes loading failed:",
             error
         );
     }
@@ -1794,72 +2700,193 @@ async function refreshDashboard() {
 
 
 /* ============================================================
-   LAST UPDATED
+   FORMAT MEMORY
    ============================================================ */
 
-function updateLastUpdated() {
+function formatMemory(
+    memory
+) {
 
-    if (!lastUpdated) {
+    if (
+        memory === null ||
+        memory === undefined ||
+        memory === ""
+    ) {
+
+        return "0";
+    }
+
+
+    if (
+        typeof memory === "number"
+    ) {
+
+        return Number.isInteger(
+            memory
+        )
+            ? String(memory)
+            : memory.toFixed(2);
+    }
+
+
+    if (
+        typeof memory === "string"
+    ) {
+
+        return memory;
+    }
+
+
+    return String(memory);
+}
+
+
+/* ============================================================
+   PROCESS DISPLAY
+   ============================================================ */
+
+function updateProcessesDisplay(
+    filteredProcesses = null
+) {
+
+    const tbody =
+        document.getElementById(
+            "processTableBody"
+        );
+
+
+    const countElement =
+        document.getElementById(
+            "processCount"
+        );
+
+
+    if (!tbody) {
         return;
     }
 
 
-    const now =
-        new Date();
+    const processes =
+        filteredProcesses ||
+        currentProcesses;
 
 
-    const time =
-        now.toLocaleTimeString(
-            [],
-            {
-                hour: "numeric",
-                minute: "2-digit",
-                second: "2-digit"
-            }
+    if (countElement) {
+
+        countElement.textContent =
+            `${processes.length} PROCESSES`;
+    }
+
+
+    if (
+        processes.length === 0
+    ) {
+
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="4">
+                    No matching processes.
+                </td>
+            </tr>
+        `;
+
+        return;
+    }
+
+
+    tbody.innerHTML =
+        processes
+            .map(
+                process => {
+
+                    const pid =
+                        process.pid ||
+                        "-";
+
+
+                    const name =
+                        process.name ||
+                        "Unknown Process";
+
+
+                    const memory =
+                        formatMemory(
+                            process.memory
+                        );
+
+
+                    const status =
+                        process.status ||
+                        "unknown";
+
+
+                    return `
+
+                        <tr>
+
+                            <td>
+                                ${escapeHTML(
+                                    pid
+                                )}
+                            </td>
+
+                            <td>
+                                ${escapeHTML(
+                                    name
+                                )}
+                            </td>
+
+                            <td>
+                                ${escapeHTML(
+                                    memory
+                                )}
+                            </td>
+
+                            <td>
+                                ${escapeHTML(
+                                    status
+                                )}
+                            </td>
+
+                        </tr>
+
+                    `;
+                }
+            )
+            .join("");
+}
+
+
+/* ============================================================
+   PROCESS SEARCH
+   ============================================================ */
+
+function setupProcessSearch() {
+
+    const search =
+        document.getElementById(
+            "processSearch"
         );
 
 
-    lastUpdated.textContent =
-        `Last updated: ${time}`;
-}
+    if (!search) {
+        return;
+    }
 
 
-/* ============================================================
-   HTML ESCAPE
-   ============================================================ */
-
-function escapeHTML(value) {
-
-    return String(value)
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;")
-        .replace(/'/g, "&#039;");
-}
-
-
-/* ============================================================
-   SEARCH - PROCESSES
-   ============================================================ */
-
-if (processSearch) {
-
-    processSearch.addEventListener(
+    search.addEventListener(
         "input",
-        function () {
+        () => {
 
             const query =
-                this.value
+                search.value
                     .trim()
                     .toLowerCase();
 
 
             if (!query) {
 
-                renderProcesses(
-                    currentProcesses
-                );
+                updateProcessesDisplay();
 
                 return;
             }
@@ -1869,35 +2896,30 @@ if (processSearch) {
                 currentProcesses.filter(
                     process => {
 
-                        let searchable = "";
+                        const text =
+                            [
+
+                                process.pid,
+
+                                process.name,
+
+                                process.memory,
+
+                                process.status
+
+                            ]
+                                .join(" ")
+                                .toLowerCase();
 
 
-                        if (
-                            Array.isArray(process)
-                        ) {
-
-                            searchable =
-                                process.join(" ");
-
-                        } else if (
-                            process &&
-                            typeof process === "object"
-                        ) {
-
-                            searchable =
-                                Object.values(process)
-                                    .join(" ");
-                        }
-
-
-                        return searchable
-                            .toLowerCase()
-                            .includes(query);
+                        return text.includes(
+                            query
+                        );
                     }
                 );
 
 
-            renderProcesses(
+            updateProcessesDisplay(
                 filtered
             );
         }
@@ -1906,26 +2928,235 @@ if (processSearch) {
 
 
 /* ============================================================
-   SEARCH - NETWORK
+   LOAD NETWORK
    ============================================================ */
 
-if (networkSearch) {
+async function loadNetwork() {
 
-    networkSearch.addEventListener(
+    try {
+
+        const data =
+            await fetchAPI(
+                "/api/network"
+            );
+
+
+        const rows =
+            normalizeArray(
+                data
+            );
+
+
+        currentNetworkConnections =
+            rows.map(
+                normalizeNetworkItem
+            );
+
+
+        updateNetworkDisplay();
+
+
+        const statNetwork =
+            document.getElementById(
+                "statNetwork"
+            );
+
+
+        if (statNetwork) {
+
+            statNetwork.textContent =
+                currentNetworkConnections.length;
+        }
+
+    } catch (error) {
+
+        console.error(
+            "Network loading failed:",
+            error
+        );
+    }
+}
+
+
+/* ============================================================
+   NETWORK DISPLAY
+   ============================================================ */
+
+function updateNetworkDisplay(
+    filteredConnections = null
+) {
+
+    const tbody =
+        document.getElementById(
+            "networkTableBody"
+        );
+
+
+    const countElement =
+        document.getElementById(
+            "networkCount"
+        );
+
+
+    const establishedElement =
+        document.getElementById(
+            "networkEstablished"
+        );
+
+
+    const listeningElement =
+        document.getElementById(
+            "networkListening"
+        );
+
+
+    if (!tbody) {
+        return;
+    }
+
+
+    const connections =
+        filteredConnections ||
+        currentNetworkConnections;
+
+
+    if (countElement) {
+
+        countElement.textContent =
+            `${currentNetworkConnections.length} CONNECTIONS`;
+    }
+
+
+    const established =
+        currentNetworkConnections.filter(
+            connection =>
+                String(
+                    connection.state ||
+                    ""
+                ).toUpperCase() ===
+                "ESTABLISHED"
+        ).length;
+
+
+    const listening =
+        currentNetworkConnections.filter(
+            connection =>
+                String(
+                    connection.state ||
+                    ""
+                ).toUpperCase() ===
+                "LISTENING"
+        ).length;
+
+
+    if (establishedElement) {
+
+        establishedElement.textContent =
+            established;
+    }
+
+
+    if (listeningElement) {
+
+        listeningElement.textContent =
+            listening;
+    }
+
+
+    if (
+        connections.length === 0
+    ) {
+
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="5">
+                    No matching network connections.
+                </td>
+            </tr>
+        `;
+
+        return;
+    }
+
+
+    tbody.innerHTML =
+        connections
+            .map(
+                connection => {
+
+                    return `
+
+                        <tr>
+
+                            <td>
+                                ${escapeHTML(
+                                    connection.protocol || "-"
+                                )}
+                            </td>
+
+                            <td>
+                                ${escapeHTML(
+                                    connection.local || "-"
+                                )}
+                            </td>
+
+                            <td>
+                                ${escapeHTML(
+                                    connection.foreign || "-"
+                                )}
+                            </td>
+
+                            <td>
+                                ${escapeHTML(
+                                    connection.pid || "-"
+                                )}
+                            </td>
+
+                            <td>
+                                ${escapeHTML(
+                                    connection.state || "-"
+                                )}
+                            </td>
+
+                        </tr>
+
+                    `;
+                }
+            )
+            .join("");
+}
+
+
+/* ============================================================
+   NETWORK SEARCH
+   ============================================================ */
+
+function setupNetworkSearch() {
+
+    const search =
+        document.getElementById(
+            "networkSearch"
+        );
+
+
+    if (!search) {
+        return;
+    }
+
+
+    search.addEventListener(
         "input",
-        function () {
+        () => {
 
             const query =
-                this.value
+                search.value
                     .trim()
                     .toLowerCase();
 
 
             if (!query) {
 
-                renderNetwork(
-                    currentNetworkConnections
-                );
+                updateNetworkDisplay();
 
                 return;
             }
@@ -1935,35 +3166,32 @@ if (networkSearch) {
                 currentNetworkConnections.filter(
                     connection => {
 
-                        let searchable = "";
+                        const text =
+                            [
+
+                                connection.protocol,
+
+                                connection.local,
+
+                                connection.foreign,
+
+                                connection.pid,
+
+                                connection.state
+
+                            ]
+                                .join(" ")
+                                .toLowerCase();
 
 
-                        if (
-                            Array.isArray(connection)
-                        ) {
-
-                            searchable =
-                                connection.join(" ");
-
-                        } else if (
-                            connection &&
-                            typeof connection === "object"
-                        ) {
-
-                            searchable =
-                                Object.values(connection)
-                                    .join(" ");
-                        }
-
-
-                        return searchable
-                            .toLowerCase()
-                            .includes(query);
+                        return text.includes(
+                            query
+                        );
                     }
                 );
 
 
-            renderNetwork(
+            updateNetworkDisplay(
                 filtered
             );
         }
@@ -1972,310 +3200,802 @@ if (networkSearch) {
 
 
 /* ============================================================
-   REFRESH BUTTON
+   REPORT GENERATION
    ============================================================ */
 
-if (refreshBtn) {
+async function generateReport() {
 
-    refreshBtn.addEventListener(
+    const button =
+        document.querySelector(
+            "[data-report]"
+        );
+
+
+    if (button) {
+
+        button.disabled =
+            true;
+
+        button.dataset.originalText =
+            button.textContent;
+
+        button.textContent =
+            "Generating...";
+    }
+
+
+    try {
+
+        let reportText =
+            "";
+
+
+        try {
+
+            const data =
+                await fetchAPI(
+                    "/api/report"
+                );
+
+
+            if (
+                typeof data ===
+                "string"
+            ) {
+
+                reportText =
+                    data;
+
+            } else if (
+                data &&
+                typeof data ===
+                "object"
+            ) {
+
+                reportText =
+                    data.report ||
+                    data.content ||
+                    data.text ||
+                    JSON.stringify(
+                        data,
+                        null,
+                        2
+                    );
+            }
+
+        } catch (apiError) {
+
+            console.warn(
+                "API report unavailable. Creating local report.",
+                apiError
+            );
+        }
+
+
+        if (!reportText) {
+
+            reportText =
+                createLocalReport();
+        }
+
+
+        const blob =
+            new Blob(
+                [reportText],
+                {
+                    type:
+                        "text/plain;charset=utf-8"
+                }
+            );
+
+
+        const url =
+            URL.createObjectURL(
+                blob
+            );
+
+
+        const link =
+            document.createElement(
+                "a"
+            );
+
+
+        const timestamp =
+            new Date()
+                .toISOString()
+                .replace(
+                    /[:.]/g,
+                    "-"
+                );
+
+
+        link.href =
+            url;
+
+
+        link.download =
+            `SentinelX-Security-Report-${timestamp}.txt`;
+
+
+        document.body.appendChild(
+            link
+        );
+
+
+        link.click();
+
+
+        link.remove();
+
+
+        URL.revokeObjectURL(
+            url
+        );
+
+    } catch (error) {
+
+        console.error(
+            "Report generation failed:",
+            error
+        );
+
+
+        alert(
+            "Unable to generate the security report."
+        );
+
+    } finally {
+
+        if (button) {
+
+            button.disabled =
+                false;
+
+            button.textContent =
+                button.dataset.originalText ||
+                "Generate Security Report";
+        }
+    }
+}
+
+
+/* ============================================================
+   LOCAL REPORT
+   ============================================================ */
+
+function createLocalReport() {
+
+    const lines = [];
+
+
+    lines.push(
+        "============================================================"
+    );
+
+
+    lines.push(
+        "                 SENTINELX SECURITY REPORT"
+    );
+
+
+    lines.push(
+        "          Cybersecurity Monitoring System"
+    );
+
+
+    lines.push(
+        "============================================================"
+    );
+
+
+    lines.push("");
+
+
+    lines.push(
+        `Generated: ${new Date().toLocaleString()}`
+    );
+
+
+    lines.push(
+        `API: ${API_BASE}`
+    );
+
+
+    lines.push("");
+
+
+    lines.push(
+        "-------------------- SECURITY SUMMARY --------------------"
+    );
+
+
+    lines.push(
+        `Total Events: ${totalEventCount || currentEvents.length}`
+    );
+
+
+    lines.push(
+        `Security Alerts: ${currentAlerts.length}`
+    );
+
+
+    lines.push(
+        `Current Risk: ${currentRisk}/100 (${getRiskLevel(currentRisk)})`
+    );
+
+
+    lines.push(
+        `Highest Risk: ${highestRisk}/100 (${getRiskLevel(highestRisk)})`
+    );
+
+
+    lines.push(
+        `Running Processes: ${currentProcesses.length}`
+    );
+
+
+    lines.push(
+        `Network Connections: ${currentNetworkConnections.length}`
+    );
+
+
+    lines.push("");
+
+
+    lines.push(
+        "-------------------- SECURITY ALERTS ---------------------"
+    );
+
+
+    currentAlerts.forEach(
+        (alert, index) => {
+
+            lines.push(
+                `${index + 1}. ${alert.timestamp || "Unknown"}`
+            );
+
+
+            lines.push(
+                `   Severity: ${alert.severity || "INFO"}`
+            );
+
+
+            lines.push(
+                `   Process: ${alert.process || "Unknown"}`
+            );
+
+
+            lines.push(
+                `   Risk: ${normalizeRisk(alert.risk_score)}/100`
+            );
+
+
+            lines.push(
+                `   Message: ${alert.message || "N/A"}`
+            );
+
+
+            lines.push("");
+        }
+    );
+
+
+    lines.push(
+        "-------------------- RECENT EVENTS -----------------------"
+    );
+
+
+    currentEvents.forEach(
+        event => {
+
+            lines.push(
+                `${event.id || "-"} | ` +
+                `${event.timestamp || "-"} | ` +
+                `${event.event_type || "-"} | ` +
+                `${event.severity || "-"} | ` +
+                `${event.message || "-"} | ` +
+                `Risk: ${normalizeRisk(event.risk_score)}/100`
+            );
+        }
+    );
+
+
+    lines.push("");
+
+
+    lines.push(
+        "============================================================"
+    );
+
+
+    lines.push(
+        "                 End of SentinelX Report"
+    );
+
+
+    lines.push(
+        "============================================================"
+    );
+
+
+    return lines.join(
+        "\n"
+    );
+}
+
+
+/* ============================================================
+   REPORT BUTTON SETUP
+   ============================================================ */
+
+function setupReportButton() {
+
+    const button =
+        document.querySelector(
+            "[data-report]"
+        ) ||
+        document.querySelector(
+            "#generateReport"
+        ) ||
+        Array.from(
+            document.querySelectorAll(
+                "button"
+            )
+        ).find(
+            element =>
+                element.textContent
+                    .toLowerCase()
+                    .includes(
+                        "generate security report"
+                    )
+        );
+
+
+    if (!button) {
+        return;
+    }
+
+
+    button.dataset.report =
+        "true";
+
+
+    button.addEventListener(
         "click",
-        async function () {
+        event => {
 
-            refreshBtn.disabled = true;
+            event.preventDefault();
 
-            const originalText =
-                refreshBtn.innerHTML;
-
-
-            refreshBtn.innerHTML =
-                "&#8635; Refreshing...";
-
-
-            await refreshDashboard();
-
-
-            refreshBtn.innerHTML =
-                originalText;
-
-            refreshBtn.disabled = false;
+            generateReport();
         }
     );
 }
 
 
 /* ============================================================
-   REPORT BUTTON
+   REFRESH DASHBOARD
    ============================================================ */
 
-if (reportBtn) {
+async function refreshDashboard() {
 
-    reportBtn.href =
-        `${API_BASE}/api/report`;
-
-    reportBtn.target =
-        "_blank";
-
-}
-
-
-/* ============================================================
-   THREAT DETAILS
-   ============================================================ */
-
-function showThreatDetails(
-    id,
-    timestamp,
-    severity,
-    process,
-    message,
-    risk
-) {
-
-    /*
-     The Threat Details popup is intentionally
-     kept simple for now.
-
-     This functionality can be polished later
-     without affecting the monitoring system.
-    */
-
-    let popup =
-        document.getElementById(
-            "threatDetailsPopup"
-        );
-
-
-    if (!popup) {
-
-        popup =
-            document.createElement("div");
-
-        popup.id =
-            "threatDetailsPopup";
-
-        popup.className =
-            "threat-details-popup";
-
-
-        popup.innerHTML = `
-            <div class="threat-details-overlay"
-                 onclick="closeThreatDetails()">
-
-                <div class="threat-details-modal"
-                     onclick="event.stopPropagation()">
-
-                    <div class="threat-details-header">
-
-                        <h3>
-                            Threat Details
-                        </h3>
-
-                        <button
-                            class="threat-close-btn"
-                            onclick="closeThreatDetails()">
-
-                            &times;
-
-                        </button>
-
-                    </div>
-
-
-                    <div
-                        id="threatDetailsContent"
-                        class="threat-details-content">
-                    </div>
-
-                </div>
-
-            </div>
-        `;
-
-
-        document.body.appendChild(
-            popup
-        );
-    }
-
-
-    const content =
-        document.getElementById(
-            "threatDetailsContent"
-        );
-
-
-    if (!content) {
+    if (refreshInProgress) {
         return;
     }
 
 
-    const safeSeverity =
-        String(severity || "INFO")
-            .toUpperCase();
+    refreshInProgress =
+        true;
 
 
-    const riskValue =
-        Number(risk) || 0;
-
-
-    content.innerHTML = `
-
-        <div class="threat-detail-row">
-
-            <span>
-                Event ID
-            </span>
-
-            <strong>
-                ${escapeHTML(String(id))}
-            </strong>
-
-        </div>
-
-
-        <div class="threat-detail-row">
-
-            <span>
-                Timestamp
-            </span>
-
-            <strong>
-                ${escapeHTML(String(timestamp))}
-            </strong>
-
-        </div>
-
-
-        <div class="threat-detail-row">
-
-            <span>
-                Severity
-            </span>
-
-            <strong class="${safeSeverity.toLowerCase()}">
-                ${escapeHTML(safeSeverity)}
-            </strong>
-
-        </div>
-
-
-        <div class="threat-detail-row">
-
-            <span>
-                Process
-            </span>
-
-            <strong>
-                ${escapeHTML(String(process))}
-            </strong>
-
-        </div>
-
-
-        <div class="threat-detail-row">
-
-            <span>
-                Risk Score
-            </span>
-
-            <strong>
-                ${riskValue}/100
-            </strong>
-
-        </div>
-
-
-        <div class="threat-detail-message">
-
-            <span>
-                Detection Message
-            </span>
-
-            <p>
-                ${escapeHTML(String(message))}
-            </p>
-
-        </div>
-
-    `;
-
-
-    popup.style.display =
-        "block";
-}
-
-
-/* ============================================================
-   CLOSE THREAT DETAILS
-   ============================================================ */
-
-function closeThreatDetails() {
-
-    const popup =
-        document.getElementById(
-            "threatDetailsPopup"
+    const refreshButton =
+        document.querySelector(
+            "[data-refresh]"
+        ) ||
+        document.querySelector(
+            "#refreshButton"
+        ) ||
+        Array.from(
+            document.querySelectorAll(
+                "button"
+            )
+        ).find(
+            element =>
+                element.textContent
+                    .toLowerCase()
+                    .includes(
+                        "refresh"
+                    )
         );
 
 
-    if (popup) {
+    if (refreshButton) {
 
-        popup.style.display =
-            "none";
+        refreshButton.disabled =
+            true;
+
+        refreshButton.classList.add(
+            "loading"
+        );
+    }
+
+
+    try {
+
+        await loadStatus();
+
+
+        await Promise.allSettled([
+
+            loadSystemInfo(),
+
+            loadAlerts(),
+
+            loadEvents(),
+
+            loadRisk(),
+
+            loadProcesses(),
+
+            loadNetwork()
+
+        ]);
+
+
+        updateRiskChart();
+
+        updateRiskTrend();
+
+        updateRiskDisplay();
+
+        updateTotalEventDisplays();
+
+    } catch (error) {
+
+        console.error(
+            "Dashboard refresh failed:",
+            error
+        );
+
+    } finally {
+
+        refreshInProgress =
+            false;
+
+
+        if (refreshButton) {
+
+            refreshButton.disabled =
+                false;
+
+            refreshButton.classList.remove(
+                "loading"
+            );
+        }
+
+
+        const lastUpdated =
+            document.getElementById(
+                "lastUpdated"
+            );
+
+
+        if (lastUpdated) {
+
+            lastUpdated.textContent =
+                new Date()
+                    .toLocaleTimeString();
+        }
     }
 }
 
 
 /* ============================================================
-   ESC KEY - CLOSE POPUP
+   GLOBAL REFRESH
+   ============================================================ */
+
+window.refreshDashboard =
+    refreshDashboard;
+
+
+/* ============================================================
+   REFRESH BUTTON SETUP
+   ============================================================ */
+
+function setupRefreshButton() {
+
+    const button =
+        document.querySelector(
+            "[data-refresh]"
+        ) ||
+        document.querySelector(
+            "#refreshButton"
+        ) ||
+        Array.from(
+            document.querySelectorAll(
+                "button"
+            )
+        ).find(
+            element =>
+                element.textContent
+                    .toLowerCase()
+                    .includes(
+                        "refresh"
+                    )
+        );
+
+
+    if (!button) {
+        return;
+    }
+
+
+    button.dataset.refresh =
+        "true";
+
+
+    button.addEventListener(
+        "click",
+        event => {
+
+            event.preventDefault();
+
+            refreshDashboard();
+        }
+    );
+}
+
+
+/* ============================================================
+   NAVIGATION
+   ============================================================ */
+
+function setupNavigation() {
+
+    const navigationLinks =
+        document.querySelectorAll(
+            'a[href^="#"]'
+        );
+
+
+    navigationLinks.forEach(
+        link => {
+
+            link.addEventListener(
+                "click",
+                event => {
+
+                    const href =
+                        link.getAttribute(
+                            "href"
+                        );
+
+
+                    if (
+                        !href ||
+                        href === "#"
+                    ) {
+
+                        event.preventDefault();
+
+
+                        window.scrollTo({
+
+                            top:
+                                0,
+
+                            behavior:
+                                "smooth"
+                        });
+
+
+                        return;
+                    }
+
+
+                    const target =
+                        document.querySelector(
+                            href
+                        );
+
+
+                    if (target) {
+
+                        event.preventDefault();
+
+
+                        target.scrollIntoView({
+
+                            behavior:
+                                "smooth",
+
+                            block:
+                                "start"
+                        });
+                    }
+                }
+            );
+        }
+    );
+}
+
+
+/* ============================================================
+   THREAT DETAILS KEYBOARD HANDLING
    ============================================================ */
 
 document.addEventListener(
     "keydown",
-    function (event) {
+    event => {
 
         if (
-            event.key === "Escape"
+            event.key ===
+            "Escape"
         ) {
 
-            closeThreatDetails();
+            const popup =
+                document.getElementById(
+                    "sentinelxThreatDetailsPopup"
+                );
+
+
+            if (popup) {
+
+                closeThreatDetails();
+            }
         }
     }
 );
 
 
 /* ============================================================
-   INITIAL LOAD
+   ALERT KEYBOARD ACCESSIBILITY
    ============================================================ */
 
-document.addEventListener(
-    "DOMContentLoaded",
-    function () {
+function setupAlertKeyboardHandling() {
 
-        console.log(
-            "SentinelX dashboard starting..."
+    const container =
+        document.getElementById(
+            "alertsContainer"
         );
 
 
-        refreshDashboard();
-
+    if (!container) {
+        return;
     }
-);
+
+
+    container.addEventListener(
+        "keydown",
+        function(event) {
+
+            const button =
+                event.target.closest(
+                    ".alert-details-link"
+                );
+
+
+            if (!button) {
+                return;
+            }
+
+
+            if (
+                event.key === "Enter" ||
+                event.key === " "
+            ) {
+
+                event.preventDefault();
+
+                event.stopPropagation();
+
+
+                const index =
+                    Number(
+                        button.getAttribute(
+                            "data-alert-details"
+                        )
+                    );
+
+
+                if (
+                    !Number.isNaN(index) &&
+                    currentAlerts[index]
+                ) {
+
+                    showThreatDetails(
+                        currentAlerts[index]
+                    );
+                }
+            }
+        }
+    );
+}
 
 
 /* ============================================================
    AUTO REFRESH
    ============================================================ */
 
-setInterval(
-    refreshDashboard,
-    10000
-);
+function startAutoRefresh() {
+
+    if (autoRefreshTimer) {
+
+        clearInterval(
+            autoRefreshTimer
+        );
+    }
+
+
+    autoRefreshTimer =
+        setInterval(
+            () => {
+
+                refreshDashboard();
+
+            },
+            10000
+        );
+}
 
 
 /* ============================================================
-   SENTINELX READY
+   INITIALIZATION
    ============================================================ */
 
-console.log(
-    "SentinelX dashboard JavaScript loaded."
+document.addEventListener(
+    "DOMContentLoaded",
+    async () => {
+
+        console.log(
+            "========================================"
+        );
+
+
+        console.log(
+            "SentinelX Dashboard initialized."
+        );
+
+
+        console.log(
+            "Initial API:",
+            API_BASE
+        );
+
+
+        console.log(
+            "Local API:",
+            LOCAL_API
+        );
+
+
+        console.log(
+            "Production API:",
+            PRODUCTION_API
+        );
+
+
+        console.log(
+            "========================================"
+        );
+
+
+        setupProcessSearch();
+
+        setupNetworkSearch();
+
+        setupRefreshButton();
+
+        setupReportButton();
+
+        setupNavigation();
+
+        setupAlertKeyboardHandling();
+
+
+        await refreshDashboard();
+
+
+        startAutoRefresh();
+    }
 );
