@@ -39,7 +39,8 @@ def supabase_request(
     method="GET",
     endpoint="",
     data=None,
-    query=None
+    query=None,
+    return_headers=False
 ):
     """
     Send a request to the Supabase REST API.
@@ -47,12 +48,19 @@ def supabase_request(
     This uses the server-side Supabase secret key.
     The key is read only from the environment and is
     never stored in the source code.
+
+    return_headers=True can be used when an API response
+    header such as Content-Range is required.
     """
 
     if not USE_SUPABASE:
         return None
 
-    url = SUPABASE_URL.rstrip("/") + "/rest/v1/" + endpoint
+    url = (
+        SUPABASE_URL.rstrip("/")
+        + "/rest/v1/"
+        + endpoint
+    )
 
     if query:
         url += "?" + urlencode(query)
@@ -69,7 +77,10 @@ def supabase_request(
     request_data = None
 
     if data is not None:
-        request_data = json.dumps(data).encode("utf-8")
+
+        request_data = json.dumps(
+            data
+        ).encode("utf-8")
 
     request = Request(
         url,
@@ -80,11 +91,22 @@ def supabase_request(
 
     try:
 
-        with urlopen(request, timeout=10) as response:
+        with urlopen(
+            request,
+            timeout=10
+        ) as response:
 
             response_body = response.read()
 
+            if return_headers:
+
+                return (
+                    response_body,
+                    response.headers
+                )
+
             if not response_body:
+
                 return []
 
             return json.loads(
@@ -103,7 +125,8 @@ def supabase_request(
     except URLError as error:
 
         print(
-            f"Supabase connection error: {error.reason}"
+            f"Supabase connection error: "
+            f"{error.reason}"
         )
 
         return None
@@ -140,7 +163,9 @@ def initialize_database():
 
         return
 
-    DATA_DIR.mkdir(exist_ok=True)
+    DATA_DIR.mkdir(
+        exist_ok=True
+    )
 
     connection = sqlite3.connect(
         DATABASE_FILE
@@ -194,6 +219,18 @@ def save_event(
     The timestamp can be supplied by a remote ingestion
     request. If no timestamp is supplied, the current
     local timestamp is generated automatically.
+
+    IMPORTANT:
+    The original risk score is preserved in storage.
+
+    This is important for:
+        RISK_ASSESSMENT
+        current risk
+        highest historical risk
+        security alerts
+
+    INFO events are normalized to risk 0 only when
+    displayed in the event history.
     """
 
     if timestamp is None:
@@ -202,13 +239,47 @@ def save_event(
             "%Y-%m-%d %H:%M:%S"
         )
 
+    try:
+
+        risk_score = int(
+            risk_score
+        )
+
+    except (
+        TypeError,
+        ValueError
+    ):
+
+        risk_score = 0
+
+    if risk_score < 0:
+
+        risk_score = 0
+
+    if risk_score > 100:
+
+        risk_score = 100
+
     event_data = {
-        "timestamp": timestamp,
-        "event_type": event_type,
-        "severity": severity,
-        "process": process,
-        "message": message,
-        "risk_score": risk_score
+
+        "timestamp":
+            str(timestamp),
+
+        "event_type":
+            str(event_type),
+
+        "severity":
+            str(severity),
+
+        "process":
+            process,
+
+        "message":
+            str(message),
+
+        "risk_score":
+            risk_score
+
     }
 
     # --------------------------------------------------------
@@ -224,6 +295,7 @@ def save_event(
         )
 
         if result is not None:
+
             return True
 
         return False
@@ -266,12 +338,63 @@ def save_event(
 
 
 # ============================================================
+# NORMALIZE DISPLAY RISK
+# ============================================================
+
+def normalize_event_risk(
+    severity,
+    risk_score
+):
+    """
+    Determine the risk value that should be displayed
+    for an event in Event History.
+
+    INFO events are informational records and therefore
+    display risk 0.
+
+    Security alerts and non-INFO events preserve their
+    actual stored risk score.
+
+    This does NOT modify the database.
+    """
+
+    severity_text = str(
+        severity or ""
+    ).upper()
+
+    try:
+
+        risk = int(
+            risk_score
+        )
+
+    except (
+        TypeError,
+        ValueError
+    ):
+
+        risk = 0
+
+    if severity_text == "INFO":
+
+        return 0
+
+    return risk
+
+
+# ============================================================
 # RECENT EVENTS
 # ============================================================
 
 def get_recent_events(limit=10):
     """
     Return the most recent security events.
+
+    INFO events are displayed with risk 0.
+
+    The underlying stored risk value is not modified.
+    This allows RISK_ASSESSMENT events to continue
+    powering the current-risk calculation.
     """
 
     # --------------------------------------------------------
@@ -281,33 +404,72 @@ def get_recent_events(limit=10):
     if USE_SUPABASE:
 
         result = supabase_request(
+
             method="GET",
+
             endpoint="security_events",
+
             query={
+
                 "select": (
                     "id,timestamp,event_type,severity,"
                     "process,message,risk_score"
                 ),
-                "order": "id.desc",
-                "limit": limit
+
+                "order":
+                    "id.desc",
+
+                "limit":
+                    limit
+
             }
+
         )
 
         if result is None:
+
             return []
 
-        return [
-            (
-                event["id"],
-                event["timestamp"],
-                event["event_type"],
-                event["severity"],
-                event.get("process"),
-                event["message"],
-                event.get("risk_score", 0)
+        events = []
+
+        for event in result:
+
+            severity = event.get(
+                "severity",
+                "INFO"
             )
-            for event in result
-        ]
+
+            stored_risk = event.get(
+                "risk_score",
+                0
+            )
+
+            display_risk = normalize_event_risk(
+                severity,
+                stored_risk
+            )
+
+            events.append((
+
+                event["id"],
+
+                event["timestamp"],
+
+                event["event_type"],
+
+                severity,
+
+                event.get(
+                    "process"
+                ),
+
+                event["message"],
+
+                display_risk
+
+            ))
+
+        return events
 
     # --------------------------------------------------------
     # LOCAL SQLITE MODE
@@ -331,11 +493,44 @@ def get_recent_events(limit=10):
         FROM security_events
         ORDER BY id DESC
         LIMIT ?
-    """, (limit,))
+    """, (
+        limit,
+    ))
 
-    events = cursor.fetchall()
+    database_events = cursor.fetchall()
 
     connection.close()
+
+    events = []
+
+    for event in database_events:
+
+        (
+            event_id,
+            timestamp,
+            event_type,
+            severity,
+            process,
+            message,
+            stored_risk
+        ) = event
+
+        display_risk = normalize_event_risk(
+            severity,
+            stored_risk
+        )
+
+        events.append((
+
+            event_id,
+            timestamp,
+            event_type,
+            severity,
+            process,
+            message,
+            display_risk
+
+        ))
 
     return events
 
@@ -347,6 +542,8 @@ def get_recent_events(limit=10):
 def get_security_alerts(limit=10):
     """
     Return the most recent security alerts.
+
+    Security alerts retain their actual risk score.
     """
 
     # --------------------------------------------------------
@@ -356,32 +553,60 @@ def get_security_alerts(limit=10):
     if USE_SUPABASE:
 
         result = supabase_request(
+
             method="GET",
+
             endpoint="security_events",
+
             query={
+
                 "select": (
                     "id,timestamp,severity,"
                     "process,message,risk_score"
                 ),
-                "event_type": "eq.SECURITY_ALERT",
-                "order": "id.desc",
-                "limit": limit
+
+                "event_type":
+                    "eq.SECURITY_ALERT",
+
+                "order":
+                    "id.desc",
+
+                "limit":
+                    limit
+
             }
+
         )
 
         if result is None:
+
             return []
 
         return [
+
             (
+
                 alert["id"],
+
                 alert["timestamp"],
+
                 alert["severity"],
-                alert.get("process"),
+
+                alert.get(
+                    "process"
+                ),
+
                 alert["message"],
-                alert.get("risk_score", 0)
+
+                alert.get(
+                    "risk_score",
+                    0
+                )
+
             )
+
             for alert in result
+
         ]
 
     # --------------------------------------------------------
@@ -406,7 +631,9 @@ def get_security_alerts(limit=10):
         WHERE event_type = 'SECURITY_ALERT'
         ORDER BY id DESC
         LIMIT ?
-    """, (limit,))
+    """, (
+        limit,
+    ))
 
     alerts = cursor.fetchall()
 
@@ -423,6 +650,9 @@ def get_current_risk_score():
     """
     Return the most recently calculated monitoring-cycle
     risk score.
+
+    RISK_ASSESSMENT events intentionally retain their
+    actual risk value in storage.
     """
 
     # --------------------------------------------------------
@@ -432,23 +662,48 @@ def get_current_risk_score():
     if USE_SUPABASE:
 
         result = supabase_request(
+
             method="GET",
+
             endpoint="security_events",
+
             query={
-                "select": "risk_score",
-                "event_type": "eq.RISK_ASSESSMENT",
-                "order": "id.desc",
-                "limit": 1
+
+                "select":
+                    "risk_score",
+
+                "event_type":
+                    "eq.RISK_ASSESSMENT",
+
+                "order":
+                    "id.desc",
+
+                "limit":
+                    1
+
             }
+
         )
 
         if not result:
+
             return 0
 
-        return result[0].get(
-            "risk_score",
-            0
-        )
+        try:
+
+            return int(
+                result[0].get(
+                    "risk_score",
+                    0
+                )
+            )
+
+        except (
+            TypeError,
+            ValueError
+        ):
+
+            return 0
 
     # --------------------------------------------------------
     # LOCAL SQLITE MODE
@@ -473,9 +728,21 @@ def get_current_risk_score():
     connection.close()
 
     if result is None:
+
         return 0
 
-    return result[0]
+    try:
+
+        return int(
+            result[0]
+        )
+
+    except (
+        TypeError,
+        ValueError
+    ):
+
+        return 0
 
 
 # ============================================================
@@ -494,22 +761,45 @@ def get_highest_risk_score():
     if USE_SUPABASE:
 
         result = supabase_request(
+
             method="GET",
+
             endpoint="security_events",
+
             query={
-                "select": "risk_score",
-                "order": "risk_score.desc",
-                "limit": 1
+
+                "select":
+                    "risk_score",
+
+                "order":
+                    "risk_score.desc",
+
+                "limit":
+                    1
+
             }
+
         )
 
         if not result:
+
             return 0
 
-        return result[0].get(
-            "risk_score",
-            0
-        )
+        try:
+
+            return int(
+                result[0].get(
+                    "risk_score",
+                    0
+                )
+            )
+
+        except (
+            TypeError,
+            ValueError
+        ):
+
+            return 0
 
     # --------------------------------------------------------
     # LOCAL SQLITE MODE
@@ -530,11 +820,22 @@ def get_highest_risk_score():
 
     connection.close()
 
-    return (
-        result[0]
-        if result[0] is not None
-        else 0
-    )
+    if result is None:
+
+        return 0
+
+    try:
+
+        return int(
+            result[0]
+        )
+
+    except (
+        TypeError,
+        ValueError
+    ):
+
+        return 0
 
 
 # ============================================================
@@ -544,6 +845,13 @@ def get_highest_risk_score():
 def get_event_count():
     """
     Return the total number of stored events.
+
+    CLOUD MODE:
+        Uses Supabase's exact Content-Range count so
+        the result is not capped at 1,000 rows.
+
+    LOCAL MODE:
+        Uses SQLite COUNT(*).
     """
 
     # --------------------------------------------------------
@@ -552,18 +860,119 @@ def get_event_count():
 
     if USE_SUPABASE:
 
-        result = supabase_request(
-            method="GET",
-            endpoint="security_events",
-            query={
-                "select": "id"
+        try:
+
+            url = (
+                SUPABASE_URL.rstrip("/")
+                + "/rest/v1/security_events"
+            )
+
+            url += "?" + urlencode({
+
+                "select":
+                    "id",
+
+                "limit":
+                    "1"
+
+            })
+
+            headers = {
+
+                "apikey":
+                    SUPABASE_SECRET_KEY,
+
+                "Authorization":
+                    f"Bearer {SUPABASE_SECRET_KEY}",
+
+                "Prefer":
+                    "count=exact"
+
             }
-        )
 
-        if result is None:
+            request = Request(
+
+                url,
+
+                headers=headers,
+
+                method="HEAD"
+
+            )
+
+            with urlopen(
+                request,
+                timeout=10
+            ) as response:
+
+                content_range = response.headers.get(
+                    "Content-Range"
+                )
+
+            if content_range:
+
+                # Expected format:
+                #
+                # 0-0/1087
+                #
+                # or:
+                #
+                # */1087
+
+                if "/" in content_range:
+
+                    total = (
+                        content_range
+                        .split("/")[-1]
+                    )
+
+                    if total != "*":
+
+                        return int(
+                            total
+                        )
+
+            # ------------------------------------------------
+            # FALLBACK
+            # ------------------------------------------------
+
+            result = supabase_request(
+
+                method="GET",
+
+                endpoint="security_events",
+
+                query={
+
+                    "select":
+                        "id",
+
+                    "limit":
+                        1
+
+                }
+
+            )
+
+            if result is None:
+
+                return 0
+
+            # If exact count cannot be obtained,
+            # return 1 rather than falsely reporting 1000.
+
+            return len(
+                result
+            )
+
+        except Exception as error:
+
+            print(
+                "Supabase event count error:",
+                error
+            )
+
             return 0
-
-        return len(result)
 
     # --------------------------------------------------------
     # LOCAL SQLITE MODE
@@ -584,7 +993,13 @@ def get_event_count():
 
     connection.close()
 
-    return result[0]
+    if result is None:
+
+        return 0
+
+    return int(
+        result[0]
+    )
 
 
 # ============================================================
@@ -604,7 +1019,9 @@ def display_event_summary():
 
     alerts = get_security_alerts(5)
 
-    print("\n========== EVENT HISTORY ==========")
+    print(
+        "\n========== EVENT HISTORY =========="
+    )
 
     print(
         f"Total Events     : {total_events}"
@@ -618,7 +1035,9 @@ def display_event_summary():
         f"Highest Risk     : {highest_risk}/100"
     )
 
-    print("\nRecent Security Alerts:")
+    print(
+        "\nRecent Security Alerts:"
+    )
 
     if not alerts:
 
@@ -640,11 +1059,17 @@ def display_event_summary():
             ) = alert
 
             print(
+
                 f"[{severity}] "
+
                 f"{timestamp} | "
+
                 f"{process} | "
+
                 f"{message} | "
+
                 f"Risk: {risk_score}"
+
             )
 
     print(
